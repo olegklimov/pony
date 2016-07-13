@@ -31,7 +31,7 @@ MINUS_O = -o
 INC += -Iinclude
 CFLAGS   = -std=c++11 -Wall -DUSE_OPENCV -Wno-unused-variable -Wno-unused-function -fPIC -g -O3 $(INC)
 CFLAGSD  = -std=c++11 -Wall -DUSE_OPENCV -Wno-unused-variable -Wno-unused-function -fPIC -g -DDEBUG $(INC)
-LIBS    += -lstdc++ -llmdb -lboost_system-mt -lboost_thread-mt -lboost_filesystem -lboost_regex -ljsoncpp
+LIBS    += -lstdc++ -llmdb -lboost_system-mt -lboost_thread-mt -lboost_filesystem -lboost_regex -ljsoncpp -lGL -lGLU
 LIBS    += `$(PKG) --libs libglog`
 LIBSQT  += `$(PKG) --libs QtGui QtOpenGL`
 LIBSD    = $(LIBS)
