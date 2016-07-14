@@ -1,0 +1,13 @@
+*.swp
+*.pyc
+*.py~
+.DS_Store
+
+/.build*
+/.generated
+/.vizdata
+
+viz-d
+viz-r
+vizproj.creator.user
+xp
