@@ -30,7 +30,7 @@ V_stable = None
 def minibatch_from_replay_buffer():
     while 1:
         buf = xp.batch(BATCH)
-        input = np.zeros( (BATCH, xp.STATE_DIM) )
+        input  = np.zeros( (BATCH, xp.STATE_DIM) )
         target = np.zeros( (BATCH, 1) )
 
         for i,x in enumerate(buf):
@@ -39,13 +39,16 @@ def minibatch_from_replay_buffer():
 
         for i,x in enumerate(buf):
             input[i] = x.s
-        this_v = V_stable.model.predict(input)
+        this_v   = V_stable.model.predict(input)
         online_v = V_online.model.predict(input)
 
         for i,x in enumerate(buf):
             x.v  = this_v[i][0]
             x.ov = online_v[i][0]
             x.nv = next_v[i][0]
+            xp.export_viz.state1[x.viz_n] = x.s
+            xp.export_viz.state2[x.viz_n] = x.sn
+            xp.export_viz.V[x.viz_n] = x.v
             if x.terminal:
                 input[i] = x.s
                 x.target = x.r

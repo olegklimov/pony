@@ -34,6 +34,7 @@ class XPoint:
         self.sampled_counter = 0
         self.important = True  # New experience is important by defauls
         self.terminal = False
+        self.viz_n = 0
 
     def to_jsonable(self):
         j = { "s": self.s.tolist(), "a": self.a.tolist(), "r": self.r }
@@ -58,11 +59,27 @@ def load(fn):
 def save(fn):
     save_lowlevel(fn, replay)
 
+class ExportViz:
+    def reopen(self, N, STATE_DIM):
+        self.state1 = np.memmap(".vizdata/state1", mode="w+", shape=(N,STATE_DIM), dtype=np.float32)
+        self.state2 = np.memmap(".vizdata/state2", mode="w+", shape=(N,STATE_DIM), dtype=np.float32)
+        self.V      = np.memmap(".vizdata/V", mode="w+", shape=(N,), dtype=np.float32)
+
+export_viz = None
+
 def shuffle():
-    global replay_shuffled
-    import random
-    replay_shuffled = replay[:]
-    random.shuffle(replay_shuffled)
+    global replay_shuffled, export_viz
+    import random    
+    del export_viz
+    export_viz = ExportViz()
+    with replay_mutex:
+        N = len(replay)
+        print "RESHUFFLE, EXPORT VIZ N=%i" % N
+        export_viz.reopen(N, STATE_DIM)
+        for n in range(N):
+            replay[n].viz_n = n        
+        replay_shuffled = replay[:]
+        random.shuffle(replay_shuffled)
 
 def batch(BATCH_SIZE):
     half_replay = len(replay_shuffled) // 2
@@ -89,6 +106,4 @@ def batch(BATCH_SIZE):
 if __name__=="__main__":
     # mine xp for specified environment
     pass
-
-
 

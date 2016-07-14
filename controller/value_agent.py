@@ -31,6 +31,7 @@ if __name__=="__main__":
             x.terminal = True
             x.sn = x.s
         x.important = False
+        
     xp.shuffle()
 
     for x in xp.replay:
