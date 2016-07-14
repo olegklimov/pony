@@ -41,15 +41,17 @@ DEPENDS= -MMD -MF $@.dep
 EVERY_BIN=viz-r$(EXE) viz-d$(EXE)
 
 UTIL = lpr3/miniutils.cpp
-
 VIZ  = viz/viz.cpp
+TSNE = t-sne/tsne.cpp t-sne/sptree.cpp
 
 UTIL_R = $(patsubst %.cpp, $(OBJDIRR)/%.o, $(UTIL))
 UTIL_D = $(patsubst %.cpp, $(OBJDIRD)/%.o, $(UTIL))
 VIZ_R = $(patsubst %.cpp, $(OBJDIRR)/%.o, $(VIZ))
 VIZ_D = $(patsubst %.cpp, $(OBJDIRD)/%.o, $(VIZ))
+TSNE_R = $(patsubst %.cpp, $(OBJDIRR)/%.o, $(TSNE))
+TSNE_D = $(patsubst %.cpp, $(OBJDIRD)/%.o, $(TSNE))
 
-EVERY_OBJ = $(VIZ_R) $(VIZ_D) $(UTIL_R) $(UTIL_D)
+EVERY_OBJ = $(VIZ_R) $(VIZ_D) $(UTIL_R) $(UTIL_D) $(TSNE_R) $(TSNE_D)
 DEP = $(patsubst %.o,%.o.dep, $(EVERY_OBJ))
 
 all: dirs $(EVERY_BIN)
@@ -58,9 +60,9 @@ $(OBJDIRR)/viz/viz.o: viz/../.generated/viz.moc
 viz/../.generated/viz.moc: viz/viz.cpp
 	$(MOC) -o $@ $<
 
-viz-r$(EXE): $(VIZ_R) $(UTILS_R)
+viz-r$(EXE): $(VIZ_R) $(UTILS_R) $(TSNE_R)
 	$(LINK) $(LINK_OPT) $(LINK_OUT)$@ $^ $(LIBS) $(LIBSQT)
-viz-d$(EXE): $(VIZ_D) $(UTILS_D)
+viz-d$(EXE): $(VIZ_D) $(UTILS_D) $(TSNE_D)
 	$(LINK) $(LINK_OPT) $(LINK_OUT)$@ $^ $(LIBSD) $(LIBSQTD)
 
 $(OBJDIRR)/%.o: %.cpp
@@ -86,7 +88,11 @@ $(OBJDIRR)/viz:
 	mkdir -p $@
 $(OBJDIRD)/viz:
 	mkdir -p $@
+$(OBJDIRR)/t-sne:
+	mkdir -p $@
+$(OBJDIRD)/t-sne:
+	mkdir -p $@
 
-dirs: .generated $(OBJDIRR)/viz $(OBJDIRD)/viz
+dirs: .generated $(OBJDIRR)/viz $(OBJDIRD)/viz $(OBJDIRR)/t-sne $(OBJDIRD)/t-sne
 
 -include Makefile.dep

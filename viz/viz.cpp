@@ -1,10 +1,17 @@
 #include <QtCore/QTimer>
 #include <QtGui/QApplication>
+#include <QtGui/QDoubleSpinBox>
+#include <QtGui/QSpinBox>
+#include <QtGui/QRadioButton>
+
 #include <QtOpenGL/QGLWidget>
 #include <QtOpenGL/QtOpenGL>
-#include <GL/glu.h>
+
 #include <boost/shared_ptr.hpp>
+#include <boost/thread/thread.hpp>
 #include <boost/iostreams/device/mapped_file.hpp>
+
+#include "../t-sne/tsne.h"
 
 using boost::shared_ptr;
 using boost::iostreams::mapped_file_source;
@@ -35,17 +42,23 @@ struct Quiver {
 
 	void open()
 	{
+		tsne_stop();
 		file_state1.open(".vizdata/state1");
 		file_state2.open(".vizdata/state2");
 		file_V.open(".vizdata/V");
 		//file_D.open(".vizdata/D");
 	}
 
-	void reprocess()
+	void reprocess(
+		const shared_ptr<Quiver>& myself,
+		float z_range,
+		bool tsne,
+		int axis1, int axis2 // if tsne false
+		)
 	{
 		int new_N = file_V.size() / sizeof(float);
 		STATEDIM = file_state1.size() / file_V.size();
-		if (new_N!=N) printf("N=%i STATEDIM=%i\n", N, STATEDIM);
+		if (new_N!=N) printf("N=%i STATEDIM=%i\n", new_N, STATEDIM);
 		N = new_N;
 		float* s1 = (float*) file_state1.data();
 		float* s2 = (float*) file_state2.data();
@@ -53,17 +66,75 @@ struct Quiver {
 		//float* D  = (float*) file_D.data();
 		vertex.resize(6*N);
 		vcolor.resize(3*N);
+		float z_range1 = 1.0 / z_range;
+		if ((int)tsne_x1x2.size() != 4*N) {
+			tsne_start(myself);
+			assert((int)tsne_x1x2.size() == 4*N);
+		}
+			
 		for (int c=0; c<N; c++) {
-			vertex[6*c+0] = s1[STATEDIM*c+0];
-			vertex[6*c+1] = s1[STATEDIM*c+1];
-			vertex[6*c+2] = V[c];
-			vertex[6*c+3] = s2[STATEDIM*c+0];
-			vertex[6*c+4] = s2[STATEDIM*c+1];
-			vertex[6*c+5] = V[c];
+			if (!tsne) {
+				vertex[6*c+0] = s1[STATEDIM*c+axis1];
+				vertex[6*c+1] = s1[STATEDIM*c+axis2];
+				vertex[6*c+3] = s2[STATEDIM*c+axis1];
+				vertex[6*c+4] = s2[STATEDIM*c+axis2];
+			} else {
+				vertex[6*c+0] = 0.1*tsne_x1x2[2*c+0];
+				vertex[6*c+1] = 0.1*tsne_x1x2[2*c+1];
+				vertex[6*c+3] = 0.1*tsne_x1x2[2*c+0 + N*STATEDIM];
+				vertex[6*c+4] = 0.1*tsne_x1x2[2*c+1 + N*STATEDIM];
+			}
+			vertex[6*c+2] = V[c]*z_range1;
+			vertex[6*c+5] = V[c]*z_range1;
 			vcolor[3*c+0] = 0.0f;
 			vcolor[3*c+1] = 1.0f;
 			vcolor[3*c+2] = 1.0f;
 		}
+	}
+
+	int tsne_iteration = 0;
+	std::vector<double> tsne_x1x2;
+	double tsne_error = 0;
+	bool tsne_shuddown = false;
+	bool tsne_done = false;
+	boost::thread* tsne_thread = 0;
+	
+	void tsne_stop()
+	{
+		if (!tsne_thread) return;
+		tsne_shuddown = true;	
+		tsne_thread->join();
+		delete tsne_thread;
+	}
+	
+	void tsne_start(const shared_ptr<Quiver>& myself)
+	{
+		tsne_stop();
+		tsne_x1x2.assign(4*N, 0.0);
+		tsne_done = false;
+		tsne_shuddown = false;
+		tsne_thread = new boost::thread( [myself] ()  { myself->tsne_thread_func(); } );
+	}
+	
+	void tsne_thread_func()
+	{
+		std::vector<double> v;
+		std::vector<double> costs;
+		v.resize(2*N*STATEDIM);
+		float* s1 = (float*) file_state1.data();
+		float* s2 = (float*) file_state2.data();
+		for (int n=0; n<N*STATEDIM; n++) {
+			v[n             ] = s1[n];
+			v[n + N*STATEDIM] = s2[n];
+		}
+		costs.resize(2*N);
+		double perplexity = 30;
+		double theta = 0.5;
+		int rand_seed = 5;
+		srand((unsigned int) rand_seed);
+		TSNE tsne;
+		tsne.run(v.data(), 2*N, STATEDIM, tsne_x1x2.data(), 2, perplexity, theta, &tsne_iteration, &tsne_error, &tsne_shuddown);
+		tsne_done = true;
 	}
 
 	void draw()
@@ -81,14 +152,11 @@ struct Quiver {
 class Viz: public QGLWidget {
 	Q_OBJECT
 public:
-	QTimer* timer;
-	
-	Viz(QWidget *parent):
-		QGLWidget(QGLFormat(QGL::SampleBuffers), parent)
+	Viz():
+		QGLWidget(QGLFormat(QGL::SampleBuffers), 0)
 	{
-		timer = new QTimer(this);
-		QObject::connect(timer, SIGNAL(timeout()), this, SLOT(timeout()));
-		timer->start(1000/30);
+		setFocusPolicy(Qt::StrongFocus);
+		setMouseTracking(true);
 	}
 
 	shared_ptr<Quiver> q;
@@ -96,24 +164,11 @@ public:
 	void initializeGL()
 	{
 		qglClearColor(Qt::black);
-		//qglClearColor(QColor(0xFF0000));
 		//glEnable(GL_BLEND);
 		//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glEnable(GL_LINE_SMOOTH);
 		glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
-
-		//glEnable(GL_DEPTH_TEST);
-		//glEnable(GL_CULL_FACE);
-		//glShadeModel(GL_SMOOTH);
-		//glEnable(GL_LIGHTING);
-		//glEnable(GL_LIGHT0);
-		//glEnable(GL_MULTISAMPLE);
-
-		//glEnable(GL_LINE_SMOOTH);
-		//glHint(GL_LINE_SMOOTH_HINT,  GL_NICEST);
-
-		//static GLfloat lightPosition[4] = { 0.5, 5.0, 7.0, 1.0 };
-		//glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
+		glEnable(GL_DEPTH_TEST);
 	}
 
 	void paintGL()
@@ -131,10 +186,6 @@ public:
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glLoadIdentity();
 		glTranslatef(0.0, 0.0, -10.0);
-
-		//0.0f, 0.0f, 0.0f,
-		//1.0f, 1.0f, 1.0f
-		//glTranslatef(0, 0, wheel);
 		glRotatef(yrot, 1.0, 0.0, 0.0);
 		glRotatef(xrot, 0.0, 0.0, 1.0);
 		glScalef(wheel,wheel,wheel);
@@ -162,6 +213,7 @@ public:
 	float yrot = -40;
 	float zrot = 0;
 	float wheel = 1;
+	float z_range = 1.0;
 
 	void keyPressEvent(QKeyEvent* kev)
 	{
@@ -223,28 +275,114 @@ public:
 			updateGL();
 		}
 	}
+};
+
+class VizWindow: public QWidget {
+	Q_OBJECT
+public:
+	Viz* viz_widget;
+	QGridLayout* grid;
 	
+	QDoubleSpinBox* z_range;
+	QDoubleSpinBox* xy_range;
+	
+	QSettings* ini;
+	QTimer* timer;
+	
+	QRadioButton* radio_tsne;
+	QRadioButton* radio_axis;
+	QSpinBox* axis1;
+	QSpinBox* axis2;
+	
+	VizWindow():
+		QWidget(0)
+	{
+		timer = new QTimer(this);
+		QObject::connect(timer, SIGNAL(timeout()), this, SLOT(timeout()));
+		timer->start(1000/30);
+		
+		ini = new QSettings("olegklimov", "pony_rl_viztool", this);
+		grid = new QGridLayout();
+		setLayout(grid);
+		
+		int row = 0;
+		grid->addWidget(new QLabel("Z range:"), row, 0);
+		z_range = new QDoubleSpinBox();
+		z_range->setRange(0.1, 1000);
+		z_range->setSingleStep(0.1);
+		z_range->setValue(ini->value("z_range").toDouble());
+		grid->addWidget(z_range, row, 1);
+		row++;
+		
+		grid->addWidget(new QLabel("XY range:"), row, 0);
+		xy_range = new QDoubleSpinBox();
+		xy_range->setRange(0.1, 1000);
+		xy_range->setSingleStep(0.1);
+		grid->addWidget(xy_range, row, 1);
+		row++;
+		
+		{
+			QGroupBox* box = new QGroupBox(tr("XY"));
+			radio_tsne = new QRadioButton("t-SNE");
+			radio_axis = new QRadioButton("Axis");
+			radio_tsne->setChecked(ini->value("xy_tsne").toBool());
+			radio_axis->setChecked(ini->value("xy_axis").toBool());
+			grid->addWidget(box, row, 0, 1, 2);
+			QVBoxLayout* vbox = new QVBoxLayout;
+			box->setLayout(vbox);
+			vbox->addWidget(radio_tsne);
+			vbox->addWidget(radio_axis);
+			axis1 = new QSpinBox();
+			axis2 = new QSpinBox();
+			axis1->setValue(ini->value("xy_axis_n1").toInt());
+			axis2->setValue(ini->value("xy_axis_n2").toInt());
+			vbox->addWidget(axis1);
+			vbox->addWidget(axis2);
+			row++;
+		}
+
+		grid->setRowStretch(row, 1);
+		grid->setColumnStretch(2, 1);
+
+		viz_widget = new Viz();
+		grid->addWidget(viz_widget, 0, 2, row+1, 1);
+
+		timeout();
+	}
+
+	~VizWindow()
+	{
+		ini->setValue("z_range", z_range->value());
+		ini->setValue("xy_tsne", radio_tsne->isChecked());
+		ini->setValue("xy_axis", radio_axis->isChecked());
+		ini->setValue("xy_axis_n1", axis1->value());
+		ini->setValue("xy_axis_n2", axis2->value());
+	}
+
 public slots:
 	void timeout()
 	{
-		if (q) {
-			q->reprocess();
+		if (viz_widget->q) {
+			viz_widget->q->reprocess(
+				viz_widget->q,
+				z_range->value(),
+				radio_tsne->isChecked(), axis1->value(), axis2->value()
+				);
 		}
-		xrot += 0.01;
-		updateGL();
+		viz_widget->xrot += 0.01;
+		viz_widget->updateGL();
 	}
 };
 
 int main(int argc, char *argv[])
 {
 	QApplication app(argc, argv);
-	Viz window(0);
+	VizWindow window;
 	try {
 		shared_ptr<Quiver> q;
 		q.reset(new Quiver);
 		q->open();
-		q->reprocess();
-		window.q = q;
+		window.viz_widget->q = q;
 
 	} catch (const std::exception& e) {
 		fprintf(stderr, "ERROR: %s\n", e.what());
