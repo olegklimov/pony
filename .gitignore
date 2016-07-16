@@ -6,6 +6,7 @@
 /.build*
 /.generated
 /.vizdata
+/.*-v?
 
 viz-d
 viz-r
