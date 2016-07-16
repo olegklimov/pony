@@ -2,7 +2,6 @@ import numpy as np
 
 STATE_DIM   = 0  # Dimensionality of s, determined from environment
 ACTION_DIM  = 0  # Dimensionality of a, actions represented as single-hot vector, i.e. [0,0,0,0,1,0,0] for 4-th action
-ACTIONS     = [] # One-hot vectors of size ACTION_DIM, array index to be sent to environment
 
 from threading import Lock
 replay_mutex = Lock()
@@ -11,10 +10,9 @@ replay_shuffled = []
 replay_important = []
 
 def init_from_env(env):
-    global STATE_DIM, ACTION_DIM, ACTIONS
-    STATE_DIM = env.observation_space.shape[0] + 1
-    ACTION_DIM = env.action_space.n
-    ACTIONS = np.eye(ACTION_DIM)
+    global STATE_DIM, ACTION_DIM
+    STATE_DIM = env.observation_space.shape[0]
+    ACTION_DIM = env.action_space.shape[0]
 
 class XPoint:
     'experience point'
@@ -35,10 +33,12 @@ class XPoint:
         self.important = True  # New experience is important by defauls
         self.terminal = False
         self.viz_n = 0
+        self.jpeg = None
 
     def to_jsonable(self):
         j = { "s": self.s.tolist(), "a": self.a.tolist(), "r": self.r }
         if self.sn is not None: j["sn"] = self.sn.tolist()
+        if self.jpeg is not None: j["jpeg"] = self.jpeg
         return j
 
 import json
@@ -102,8 +102,4 @@ def batch(BATCH_SIZE):
     #print [x.sampled_counter for x in buf], len(replay_shuffled)
     assert( len(buf)==BATCH_SIZE )
     return buf
-
-if __name__=="__main__":
-    # mine xp for specified environment
-    pass
 
