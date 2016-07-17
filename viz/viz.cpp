@@ -103,11 +103,11 @@ struct Quiver {
 			vertex[6*c+5] = Vstable2[c] * z_range1;
 
 			vcolor[6*c+0] = 0.3f;
-			vcolor[6*c+1] = 0.5f;
-			vcolor[6*c+2] = step[c]*step1;
+			vcolor[6*c+1] = 0.3f;
+			vcolor[6*c+2] = 0.3f + step[c]*step1*0.7f;
 			vcolor[6*c+3] = 0;
 			vcolor[6*c+4] = 0.2f;
-			vcolor[6*c+5] = step[c]*step1;
+			vcolor[6*c+5] = 0.5*step[c]*step1;
 
 			vertex[6*c+0+part2] = vertex[6*c+0];
 			vertex[6*c+1+part2] = vertex[6*c+1];
@@ -115,12 +115,21 @@ struct Quiver {
 			vertex[6*c+3+part2] = vertex[6*c+0];
 			vertex[6*c+4+part2] = vertex[6*c+1];
 			vertex[6*c+5+part2] = Vtarget[c] * z_range1;
-			vcolor[6*c+0+part2] = 1.0f;
-			vcolor[6*c+1+part2] = 0.0f;
-			vcolor[6*c+2+part2] = 0.0f;
-			vcolor[6*c+3+part2] = 1.0f;
-			vcolor[6*c+4+part2] = 0.0f;
-			vcolor[6*c+5+part2] = 0.0f;
+			if (Vtarget[c] > Vonline1[c]) {
+				vcolor[6*c+0+part2] = 0.0f;
+				vcolor[6*c+1+part2] = 1.0f;
+				vcolor[6*c+2+part2] = 0.0f;
+				vcolor[6*c+3+part2] = 0.0f;
+				vcolor[6*c+4+part2] = 1.0f;
+				vcolor[6*c+5+part2] = 0.0f;
+			} else {
+				vcolor[6*c+0+part2] = 1.0f;
+				vcolor[6*c+1+part2] = 0.0f;
+				vcolor[6*c+2+part2] = 0.0f;
+				vcolor[6*c+3+part2] = 1.0f;
+				vcolor[6*c+4+part2] = 0.0f;
+				vcolor[6*c+5+part2] = 0.0f;
+			}
 		}
 	}
 
@@ -172,19 +181,20 @@ struct Quiver {
 	void draw()
 	{
 		if (vertex.empty()) return;
-		glVertexPointer(3, GL_FLOAT, 0, vertex.data());
-		glColorPointer(3, GL_FLOAT, 0, vcolor.data());
 		glEnableClientState(GL_VERTEX_ARRAY);
 		glEnableClientState(GL_COLOR_ARRAY);
+
+		glVertexPointer(3, GL_FLOAT, 0, vertex.data());
+		glColorPointer(3, GL_FLOAT, 0, vcolor.data());
 		glDrawArrays(GL_LINES, 0, 4*N);
+
+		glVertexPointer(3, GL_FLOAT, 6, vertex.data());
+		glColorPointer(3, GL_FLOAT, 6, vcolor.data());
+		glPointSize(3.0f);
+		glDrawArrays(GL_POINTS, 0, N);
+
 		glDisableClientState(GL_VERTEX_ARRAY);
 		glDisableClientState(GL_COLOR_ARRAY);
-
-		glEnableClientState(GL_VERTEX_ARRAY);
-		glColor3f(0.0f, 1.0f, 0.0f);
-		glPointSize(3.0f);
-		glDrawArrays(GL_POINTS, 0, 2*N);
-		glDisableClientState(GL_VERTEX_ARRAY);
 	}
 };
 
@@ -207,7 +217,7 @@ public:
 		//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glEnable(GL_LINE_SMOOTH);
 		glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
-		//glEnable(GL_DEPTH_TEST);
+		glEnable(GL_DEPTH_TEST);
 	}
 
 	void paintGL()
@@ -230,7 +240,7 @@ public:
 		glScalef(wheel,wheel,wheel);
 		glTranslatef(-user_x, -user_y, -user_z);
 
-		glColor3f(1.0f, 1.0f, 1.0f);
+		glColor3f(0.3f, 0.3f, 0.3f);
 		glVertexPointer(3, GL_FLOAT, 0, line_vertex);
 		glEnableClientState(GL_VERTEX_ARRAY);
 		glDrawArrays(GL_LINES, 0, sizeof(line_vertex)/sizeof(float)/3);
@@ -352,7 +362,7 @@ public:
 		z_range->setValue(ini->value("z_range").toDouble());
 		grid->addWidget(z_range, row, 1);
 		row++;
-		
+
 		grid->addWidget(new QLabel("XY range:"), row, 0);
 		xy_range = new QDoubleSpinBox();
 		xy_range->setRange(0.1, 1000);
@@ -360,7 +370,7 @@ public:
 		xy_range->setValue(ini->value("xy_range").toDouble());
 		grid->addWidget(xy_range, row, 1);
 		row++;
-		
+
 		{
 			QGroupBox* box = new QGroupBox(tr("XY"));
 			radio_tsne = new QRadioButton("t-SNE");

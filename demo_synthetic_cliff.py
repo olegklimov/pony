@@ -28,7 +28,6 @@ def synthetic_cliff():
         a = np.array( [0] )
         r = 0
         xp.replay.append( xp.XPoint(side_s,a,r,side_sn,0,False) )
-        xp.replay.append( xp.XPoint(side_sn,a,r,side_s,0,False) )
 #    for c in range(15):
 #        alpha      = 2*np.pi / 15 * c
 #        alpha_next = 2*np.pi / 15 * (c+1)

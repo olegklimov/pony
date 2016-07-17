@@ -7,7 +7,7 @@ from keras import backend as K
 from keras.layers.core import Dense
 import xp
 
-BATCH = 20
+BATCH = 200
 GAMMA = 0.95
 TAU   = 0.01
 
@@ -93,7 +93,7 @@ class BatchEndCallback(keras.callbacks.Callback):
 def learn_thread_func():
     V_online.model.fit_generator(
         minibatch_from_replay_buffer(),
-        samples_per_epoch=1, nb_epoch=10000, verbose=0, max_q_size=1,
+        samples_per_epoch=1, nb_epoch=100000, verbose=0, max_q_size=1,
         callbacks=[BatchEndCallback()] # Inside callback set new y_ddqn target every minibatch
         );
 
