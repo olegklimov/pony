@@ -49,6 +49,11 @@ if args.viz_only:
         xp.export_viz.Vstable1[x.viz_n] = x.r
         xp.export_viz.Vstable2[x.viz_n] = x.r
         xp.export_viz.step[x.viz_n] = x.step
+        if x.jpeg:
+            j = os.path.basename(x.jpeg)
+            for c in range(len(j)):
+                assert c < 15
+                xp.export_viz.jpeg[x.viz_n*16 + c] = ord(j[c])
     del xp.export_viz
     xp.export_viz_open(dir, "r+")
     sys.exit(0)

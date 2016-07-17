@@ -65,13 +65,14 @@ def save(fn):
 
 class ExportViz:
     def reopen(self, dir, N, STATE_DIM, mode):
-        self.state1   = np.memmap(dir+"/state1", mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
-        self.state2   = np.memmap(dir+"/state2", mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
+        self.state1   = np.memmap(dir+"/state1",  mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
+        self.state2   = np.memmap(dir+"/state2",  mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
         self.Vtarget  = np.memmap(dir+"/Vtarget", mode=mode, shape=(N,), dtype=np.float32)
         self.Vonline1 = np.memmap(dir+"/Vonline1", mode=mode, shape=(N,), dtype=np.float32)
         self.Vstable1 = np.memmap(dir+"/Vstable1", mode=mode, shape=(N,), dtype=np.float32)
         self.Vstable2 = np.memmap(dir+"/Vstable2", mode=mode, shape=(N,), dtype=np.float32)
-        self.step     = np.memmap(dir+"/step", mode=mode, shape=(N,), dtype=np.int32)
+        self.step     = np.memmap(dir+"/step",    mode=mode, shape=(N,), dtype=np.int32)
+        self.jpeg     = np.memmap(dir+"/jpegmap", mode=mode, shape=(N*16,), dtype=np.int8)
 
 export_viz = None
 

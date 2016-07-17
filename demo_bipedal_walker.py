@@ -4,7 +4,6 @@ from controller import xp
 import numpy as np
 import scipy.misc
 
-
 dir = ".BipedalWalker-v2"
 
 try: os.mkdir(dir)
@@ -17,14 +16,16 @@ xp.init_from_env(env)
 step = 0
 for e in range(20):
     s = env.reset()
+    ts = 0
     episode = []
     while True:
         a = w.heuristic(env, s)
         sn, r, done, info = env.step(a)
-        pt = xp.XPoint(s, a, r, sn if not done else None)
+        pt = xp.XPoint(s, a, r, sn, ts, done)
         s = sn
         step += 1
-        if step % 20 == 0 or done:
+        ts += 1
+        if step % 5 == 0 or done:
             rgb = env.render("rgb_array")
             jpeg_name = dir + "/z{:05}.jpg".format(step)
             scipy.misc.imsave(jpeg_name, rgb)

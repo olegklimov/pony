@@ -11,6 +11,8 @@
 #include <boost/thread/thread.hpp>
 #include <boost/iostreams/device/mapped_file.hpp>
 
+#include <GL/glu.h>
+
 #include "../t-sne/tsne.h"
 
 using boost::shared_ptr;
@@ -40,10 +42,12 @@ struct Quiver {
 	mapped_file_source file_Vstable2;
 	mapped_file_source file_Vtarget;
 	mapped_file_source file_step;
+	mapped_file_source file_jpeg;
 	
 	//mapped_file_source file_D;
 	std::vector<float> vertex; // x y z
 	std::vector<float> vcolor; // r g b
+	std::string jpeg_dir;
 
 	void open(const std::string& dir)
 	{
@@ -55,6 +59,8 @@ struct Quiver {
 		file_Vstable2.open(dir + "/Vstable2");
 		file_Vtarget.open(dir + "/Vtarget");
 		file_step.open(dir + "/step");
+		file_jpeg.open(dir + "/jpegmap");
+		jpeg_dir = dir;
 	}
 
 	void reprocess(
@@ -76,7 +82,7 @@ struct Quiver {
 		float* Vstable1 = (float*) file_Vstable1.data();
 		float* Vstable2 = (float*) file_Vstable2.data();
 		float* Vtarget  = (float*) file_Vtarget.data();
-		int* step      = (int*) file_step.data();
+		int* step       = (int*) file_step.data();
 		float step1 = 1.0f / *std::max_element(step, step+N);
 		vertex.resize(2*6*N);
 		vcolor.resize(2*6*N);
@@ -96,8 +102,8 @@ struct Quiver {
 			} else {
 				vertex[6*c+0] = xy_range1*tsne_x1x2[2*c+0];
 				vertex[6*c+1] = xy_range1*tsne_x1x2[2*c+1];
-				vertex[6*c+3] = xy_range1*tsne_x1x2[2*c+0 + N*STATEDIM];
-				vertex[6*c+4] = xy_range1*tsne_x1x2[2*c+1 + N*STATEDIM];
+				vertex[6*c+3] = xy_range1*tsne_x1x2[2*c+0 + N];
+				vertex[6*c+4] = xy_range1*tsne_x1x2[2*c+1 + N];
 			}
 			vertex[6*c+2] = Vstable1[c] * z_range1;
 			vertex[6*c+5] = Vstable2[c] * z_range1;
@@ -178,7 +184,7 @@ struct Quiver {
 		tsne_done = true;
 	}
 
-	void draw()
+	void draw(int highlight_n)
 	{
 		if (vertex.empty()) return;
 		glEnableClientState(GL_VERTEX_ARRAY);
@@ -188,10 +194,15 @@ struct Quiver {
 		glColorPointer(3, GL_FLOAT, 0, vcolor.data());
 		glDrawArrays(GL_LINES, 0, 4*N);
 
-		glVertexPointer(3, GL_FLOAT, 6, vertex.data());
-		glColorPointer(3, GL_FLOAT, 6, vcolor.data());
+		glVertexPointer(3, GL_FLOAT, 6*4, vertex.data());
+		glColorPointer(3, GL_FLOAT, 6*4, vcolor.data());
 		glPointSize(3.0f);
 		glDrawArrays(GL_POINTS, 0, N);
+		
+		if (highlight_n != -1) {
+			glPointSize(9.0f);
+			glDrawArrays(GL_POINTS, highlight_n, 1);
+		}
 
 		glDisableClientState(GL_VERTEX_ARRAY);
 		glDisableClientState(GL_COLOR_ARRAY);
@@ -224,14 +235,13 @@ public:
 	{
 		glMatrixMode(GL_PROJECTION);
 		glLoadIdentity();
-		//glOrtho(-5.5, +5.5, -5.5, +5.5, -5.0, 15.0);
 		float near = 0.1;
 		float far  = 5.0;
 		float typical = 1.0;
 		float r = typical/far*near;
 		glFrustum(-r, +r, -r, +r, 0.1, 55.0);
-		glMatrixMode(GL_MODELVIEW);
 
+		glMatrixMode(GL_MODELVIEW);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glLoadIdentity();
 		glTranslatef(0.0, 0.0, -10.0);
@@ -246,15 +256,70 @@ public:
 		glDrawArrays(GL_LINES, 0, sizeof(line_vertex)/sizeof(float)/3);
 		glDisableClientState(GL_VERTEX_ARRAY);
 
-		if (q) q->draw();
+		int closest = -1;
+		double closest_dist = 60;
+		
+		if (q) {
+			const char* jpeg = (const char*) q->file_jpeg.data();
+			int mid_h = rect().height();
+			std::array<GLdouble, 16> projection;
+			std::array<GLdouble, 16> modelview;
+			std::array<GLdouble, 3>  screen_coords;
+			glGetDoublev(GL_PROJECTION_MATRIX, projection.data());
+			glGetDoublev(GL_MODELVIEW_MATRIX, modelview.data());
+			std::array<GLint,4> viewport;
+			glGetIntegerv(GL_VIEWPORT, viewport.data());
+			float* vertex = q->vertex.data();
+			int N = q->N;
+			for (int c=0; c<N; c++) {
+				if (jpeg[16*c]==0) continue;
+				gluProject(
+					vertex[6*c+0], vertex[6*c+1], vertex[6*c+2],
+					modelview.data(),
+					projection.data(),
+					viewport.data(),
+					screen_coords.data(), screen_coords.data() + 1, screen_coords.data() + 2);
+				int x = screen_coords[0];
+				int y = mid_h - screen_coords[1];
+				double dist = fabs(x - mouse_prev_x) + fabs(y - mouse_prev_y);
+				if (dist < closest_dist) {
+					closest_dist = dist;
+					closest = c;
+				}
+			}
+		}
+
+		if (q) q->draw(closest);
+
+		if (closest!=-1) {
+			glLoadIdentity();
+			//glPointSize(26.0f);
+			//glColor3f(1.0, 1.0, 1.0);
+			//glBegin(GL_POINTS);
+			float x = (mouse_prev_x + 10 - rect().width()/2) / side*r*2;
+			float y = (rect().height()/2 - 10 - mouse_prev_y) / side*r*2;
+			//glVertex3f(x, y,-0.10);
+			//glEnd();
+
+			const char* jpeg = (const char*) q->file_jpeg.data();
+			std::string fn = q->jpeg_dir + "/" + (jpeg + 16*closest); // ".BipedalWalker-v2/z00020.jpg"
+			fprintf(stderr, "%s\n", fn.c_str());
+			QImage test(fn.c_str());
+			glRasterPos3f( x, y, -0.10 );
+			glPixelZoom(1.0, -1.0);
+			glDrawPixels(test.width(), test.height(), 
+				GL_BGRA, GL_UNSIGNED_BYTE, 
+				test.bits() );
+		}
 	}
 
 	void resizeGL(int w, int h)
 	{
-		int side = std::max(w, h);
+		side = std::max(w, h);
 		glViewport((w - side) / 2, (h - side) / 2, side, side);
 	}
 
+	int side;
 	float user_x = 0;
 	float user_y = 0;
 	float user_z = 0;
@@ -297,9 +362,10 @@ public:
 	{
 		updateGL();
 		if (mev->button()==Qt::LeftButton) {
-			prev_mx = mev->x();
-			prev_my = mev->y();
+			mouse_prev_x = mev->x();
+			mouse_prev_y = mev->y();
 			drag = true;
+			mouse_screenshot = false;
 		}
 	}
 
@@ -309,19 +375,24 @@ public:
 			drag = false;
 	}
 
-
+	bool mouse_screenshot = false;
 	bool drag = false;
-	double prev_mx;
-	double prev_my;
+	double mouse_prev_x = 0;
+	double mouse_prev_y = 0;
 
 	void mouseMoveEvent(QMouseEvent* mev)
 	{
 		if (drag) {
-			xrot += 0.02*(mev->x() - prev_mx);
-			yrot += 0.02*(mev->y() - prev_my);
-			prev_mx = mev->x();
-			prev_my = mev->y();
+			xrot += 0.02*(mev->x() - mouse_prev_x);
+			yrot += 0.02*(mev->y() - mouse_prev_y);
+			mouse_prev_x = mev->x();
+			mouse_prev_y = mev->y();
 			updateGL();
+			mouse_screenshot = false;
+		} else {
+			mouse_prev_x = mev->x();
+			mouse_prev_y = mev->y();
+			mouse_screenshot = true;
 		}
 	}
 };
