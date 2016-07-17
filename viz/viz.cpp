@@ -31,64 +31,97 @@ float line_vertex[] = {
 };
 
 struct Quiver {
-	int N;
+	int N = 0;
 	int STATEDIM;
 	mapped_file_source file_state1;
 	mapped_file_source file_state2;
-	mapped_file_source file_V;
+	mapped_file_source file_Vonline1;
+	mapped_file_source file_Vstable1;
+	mapped_file_source file_Vstable2;
+	mapped_file_source file_Vtarget;
+	mapped_file_source file_step;
+	
 	//mapped_file_source file_D;
 	std::vector<float> vertex; // x y z
 	std::vector<float> vcolor; // r g b
 
-	void open()
+	void open(const std::string& dir)
 	{
 		tsne_stop();
-		file_state1.open(".vizdata/state1");
-		file_state2.open(".vizdata/state2");
-		file_V.open(".vizdata/V");
-		//file_D.open(".vizdata/D");
+		file_state1.open(dir + "/state1");
+		file_state2.open(dir + "/state2");
+		file_Vonline1.open(dir + "/Vonline1");
+		file_Vstable1.open(dir + "/Vstable1");
+		file_Vstable2.open(dir + "/Vstable2");
+		file_Vtarget.open(dir + "/Vtarget");
+		file_step.open(dir + "/step");
 	}
 
 	void reprocess(
 		const shared_ptr<Quiver>& myself,
+		float xy_range,
 		float z_range,
 		bool tsne,
 		int axis1, int axis2 // if tsne false
 		)
 	{
-		int new_N = file_V.size() / sizeof(float);
-		STATEDIM = file_state1.size() / file_V.size();
+		int new_N = file_Vonline1.size() / sizeof(float);
+		STATEDIM = file_state1.size() / file_Vonline1.size();
 		if (new_N!=N) printf("N=%i STATEDIM=%i\n", new_N, STATEDIM);
 		N = new_N;
 		float* s1 = (float*) file_state1.data();
 		float* s2 = (float*) file_state2.data();
-		float* V  = (float*) file_V.data();
-		//float* D  = (float*) file_D.data();
-		vertex.resize(6*N);
-		vcolor.resize(3*N);
+		float* Vonline1 = (float*) file_Vonline1.data();
+		float* Vstable1 = (float*) file_Vstable1.data();
+		float* Vstable2 = (float*) file_Vstable2.data();
+		float* Vtarget  = (float*) file_Vtarget.data();
+		int* step      = (int*) file_step.data();
+		vertex.resize(2*6*N);
+		vcolor.resize(2*6*N);
 		float z_range1 = 1.0 / z_range;
-		if ((int)tsne_x1x2.size() != 4*N) {
+		float xy_range1 = 1.0 / xy_range;
+		if (tsne && (int)tsne_x1x2.size() != 4*N) {
 			tsne_start(myself);
 			assert((int)tsne_x1x2.size() == 4*N);
 		}
-			
+		int part2 = N*6;
+		static int gluck = 0;
+		gluck++;
 		for (int c=0; c<N; c++) {
+			int i = (gluck + c) % N;
 			if (!tsne) {
-				vertex[6*c+0] = s1[STATEDIM*c+axis1];
-				vertex[6*c+1] = s1[STATEDIM*c+axis2];
-				vertex[6*c+3] = s2[STATEDIM*c+axis1];
-				vertex[6*c+4] = s2[STATEDIM*c+axis2];
+				vertex[6*c+0] = xy_range1*s1[STATEDIM*i+axis1];
+				vertex[6*c+1] = xy_range1*s1[STATEDIM*i+axis2];
+				vertex[6*c+3] = xy_range1*s2[STATEDIM*i+axis1];
+				vertex[6*c+4] = xy_range1*s2[STATEDIM*i+axis2];
 			} else {
-				vertex[6*c+0] = 0.1*tsne_x1x2[2*c+0];
-				vertex[6*c+1] = 0.1*tsne_x1x2[2*c+1];
-				vertex[6*c+3] = 0.1*tsne_x1x2[2*c+0 + N*STATEDIM];
-				vertex[6*c+4] = 0.1*tsne_x1x2[2*c+1 + N*STATEDIM];
+				vertex[6*c+0] = xy_range1*tsne_x1x2[2*i+0];
+				vertex[6*c+1] = xy_range1*tsne_x1x2[2*i+1];
+				vertex[6*c+3] = xy_range1*tsne_x1x2[2*i+0 + N*STATEDIM];
+				vertex[6*c+4] = xy_range1*tsne_x1x2[2*i+1 + N*STATEDIM];
 			}
-			vertex[6*c+2] = V[c]*z_range1;
-			vertex[6*c+5] = V[c]*z_range1;
-			vcolor[3*c+0] = 0.0f;
-			vcolor[3*c+1] = 1.0f;
-			vcolor[3*c+2] = 1.0f;
+			vertex[6*c+2] = Vstable1[i] * z_range1;
+			vertex[6*c+5] = Vstable2[i] * z_range1;
+			
+			vcolor[6*c+0] = 0.3f;
+			vcolor[6*c+1] = 0.5f;
+			vcolor[6*c+2] = 0.5f;
+			vcolor[6*c+3] = 0.0f;
+			vcolor[6*c+4] = 0.2f;
+			vcolor[6*c+5] = 0.2f;
+			
+			vertex[6*c+0+part2] = vertex[6*c+0];
+			vertex[6*c+1+part2] = vertex[6*c+1];
+			vertex[6*c+2+part2] = Vonline1[i] * z_range1;
+			vertex[6*c+3+part2] = vertex[6*c+0];
+			vertex[6*c+4+part2] = vertex[6*c+1];
+			vertex[6*c+5+part2] = Vtarget[i] * z_range1;
+			vcolor[6*c+0+part2] = 1.0f;
+			vcolor[6*c+1+part2] = 0.0f;
+			vcolor[6*c+2+part2] = 0.0f;
+			vcolor[6*c+3+part2] = 1.0f;
+			vcolor[6*c+4+part2] = 0.0f;
+			vcolor[6*c+5+part2] = 0.0f;
 		}
 	}
 
@@ -139,13 +172,22 @@ struct Quiver {
 
 	void draw()
 	{
+		if (vertex.empty()) return;
 		glVertexPointer(3, GL_FLOAT, 0, vertex.data());
 		glColorPointer(3, GL_FLOAT, 0, vcolor.data());
 		glEnableClientState(GL_VERTEX_ARRAY);
 		glEnableClientState(GL_COLOR_ARRAY);
-		glDrawArrays(GL_LINES, 0, N);
+		//for (int i=0; i<2*N; i++)
+		//	glDrawArrays(GL_LINES, 2*i, 2);
+		glDrawArrays(GL_LINES, 0, 4*N);
 		glDisableClientState(GL_VERTEX_ARRAY);
 		glDisableClientState(GL_COLOR_ARRAY);
+
+		glEnableClientState(GL_VERTEX_ARRAY);
+		glColor3f(0.0f, 1.0f, 0.0f);
+		glPointSize(3.0f);
+		glDrawArrays(GL_POINTS, 0, 2*N);
+		glDisableClientState(GL_VERTEX_ARRAY);
 	}
 };
 
@@ -240,7 +282,7 @@ public:
 
 	void wheelEvent(QWheelEvent* wev)
 	{
-		wheel += 0.001*wev->delta();
+		wheel *= (1 + 0.001*wev->delta());
 		updateGL();
 	}
 
@@ -294,14 +336,14 @@ public:
 	QSpinBox* axis1;
 	QSpinBox* axis2;
 	
-	VizWindow():
+	VizWindow(const std::string& dir):
 		QWidget(0)
 	{
 		timer = new QTimer(this);
 		QObject::connect(timer, SIGNAL(timeout()), this, SLOT(timeout()));
 		timer->start(1000/30);
 		
-		ini = new QSettings("olegklimov", "pony_rl_viztool", this);
+		ini = new QSettings( (dir + "/viz.ini").c_str(), QSettings::IniFormat, this);
 		grid = new QGridLayout();
 		setLayout(grid);
 		
@@ -318,6 +360,7 @@ public:
 		xy_range = new QDoubleSpinBox();
 		xy_range->setRange(0.1, 1000);
 		xy_range->setSingleStep(0.1);
+		xy_range->setValue(ini->value("xy_range").toDouble());
 		grid->addWidget(xy_range, row, 1);
 		row++;
 		
@@ -352,6 +395,7 @@ public:
 
 	~VizWindow()
 	{
+		ini->setValue("xy_range", xy_range->value());
 		ini->setValue("z_range", z_range->value());
 		ini->setValue("xy_tsne", radio_tsne->isChecked());
 		ini->setValue("xy_axis", radio_axis->isChecked());
@@ -365,6 +409,7 @@ public slots:
 		if (viz_widget->q) {
 			viz_widget->q->reprocess(
 				viz_widget->q,
+				xy_range->value(),
 				z_range->value(),
 				radio_tsne->isChecked(), axis1->value(), axis2->value()
 				);
@@ -376,16 +421,22 @@ public slots:
 
 int main(int argc, char *argv[])
 {
+	if (argc<2) {
+		fprintf(stderr, "Usage:\n%s DIR\n", argv[0]);
+		return 1;
+	}
 	QApplication app(argc, argv);
-	VizWindow window;
+	std::string dir = argv[1];
+	VizWindow window(dir);
 	try {
 		shared_ptr<Quiver> q;
 		q.reset(new Quiver);
-		q->open();
+		q->open(dir);
 		window.viz_widget->q = q;
 
 	} catch (const std::exception& e) {
 		fprintf(stderr, "ERROR: %s\n", e.what());
+		return 1;
 	}
 
 	window.showMaximized();

@@ -46,9 +46,7 @@ def minibatch_from_replay_buffer():
             x.v  = this_v[i][0]
             x.ov = online_v[i][0]
             x.nv = next_v[i][0]
-            xp.export_viz.state1[x.viz_n] = x.s
-            xp.export_viz.state2[x.viz_n] = x.sn
-            xp.export_viz.V[x.viz_n] = x.v
+
             if x.terminal:
                 input[i] = x.s
                 x.target = x.r
@@ -65,6 +63,14 @@ def minibatch_from_replay_buffer():
                     x.important = False
                 if x.target > 100: x.target = 100
             target[i,0] = x.target
+
+            xp.export_viz.state1[x.viz_n] = x.s    # VIZ
+            xp.export_viz.state2[x.viz_n] = x.sn
+            xp.export_viz.Vtarget[x.viz_n] = x.target   # stable
+            xp.export_viz.Vonline1[x.viz_n] = x.ov      # online
+            xp.export_viz.Vstable2[x.viz_n] = x.nv      # stable
+            xp.export_viz.Vstable1[x.viz_n] = x.v       # stable
+            xp.export_viz.step[x.viz_n] = x.step
 
         yield (input, target)
 
