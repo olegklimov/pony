@@ -69,6 +69,7 @@ struct Quiver {
 		STATEDIM = file_state1.size() / file_Vonline1.size();
 		if (new_N!=N) printf("N=%i STATEDIM=%i\n", new_N, STATEDIM);
 		N = new_N;
+		if (N==0) return;
 		float* s1 = (float*) file_state1.data();
 		float* s2 = (float*) file_state2.data();
 		float* Vonline1 = (float*) file_Vonline1.data();
@@ -76,6 +77,7 @@ struct Quiver {
 		float* Vstable2 = (float*) file_Vstable2.data();
 		float* Vtarget  = (float*) file_Vtarget.data();
 		int* step      = (int*) file_step.data();
+		float step1 = 1.0f / *std::max_element(step, step+N);
 		vertex.resize(2*6*N);
 		vcolor.resize(2*6*N);
 		float z_range1 = 1.0 / z_range;
@@ -85,37 +87,34 @@ struct Quiver {
 			assert((int)tsne_x1x2.size() == 4*N);
 		}
 		int part2 = N*6;
-		static int gluck = 0;
-		gluck++;
 		for (int c=0; c<N; c++) {
-			int i = (gluck + c) % N;
 			if (!tsne) {
-				vertex[6*c+0] = xy_range1*s1[STATEDIM*i+axis1];
-				vertex[6*c+1] = xy_range1*s1[STATEDIM*i+axis2];
-				vertex[6*c+3] = xy_range1*s2[STATEDIM*i+axis1];
-				vertex[6*c+4] = xy_range1*s2[STATEDIM*i+axis2];
+				vertex[6*c+0] = xy_range1*s1[STATEDIM*c+axis1];
+				vertex[6*c+1] = xy_range1*s1[STATEDIM*c+axis2];
+				vertex[6*c+3] = xy_range1*s2[STATEDIM*c+axis1];
+				vertex[6*c+4] = xy_range1*s2[STATEDIM*c+axis2];
 			} else {
-				vertex[6*c+0] = xy_range1*tsne_x1x2[2*i+0];
-				vertex[6*c+1] = xy_range1*tsne_x1x2[2*i+1];
-				vertex[6*c+3] = xy_range1*tsne_x1x2[2*i+0 + N*STATEDIM];
-				vertex[6*c+4] = xy_range1*tsne_x1x2[2*i+1 + N*STATEDIM];
+				vertex[6*c+0] = xy_range1*tsne_x1x2[2*c+0];
+				vertex[6*c+1] = xy_range1*tsne_x1x2[2*c+1];
+				vertex[6*c+3] = xy_range1*tsne_x1x2[2*c+0 + N*STATEDIM];
+				vertex[6*c+4] = xy_range1*tsne_x1x2[2*c+1 + N*STATEDIM];
 			}
-			vertex[6*c+2] = Vstable1[i] * z_range1;
-			vertex[6*c+5] = Vstable2[i] * z_range1;
-			
+			vertex[6*c+2] = Vstable1[c] * z_range1;
+			vertex[6*c+5] = Vstable2[c] * z_range1;
+
 			vcolor[6*c+0] = 0.3f;
 			vcolor[6*c+1] = 0.5f;
-			vcolor[6*c+2] = 0.5f;
-			vcolor[6*c+3] = 0.0f;
+			vcolor[6*c+2] = step[c]*step1;
+			vcolor[6*c+3] = 0;
 			vcolor[6*c+4] = 0.2f;
-			vcolor[6*c+5] = 0.2f;
-			
+			vcolor[6*c+5] = step[c]*step1;
+
 			vertex[6*c+0+part2] = vertex[6*c+0];
 			vertex[6*c+1+part2] = vertex[6*c+1];
-			vertex[6*c+2+part2] = Vonline1[i] * z_range1;
+			vertex[6*c+2+part2] = Vonline1[c] * z_range1;
 			vertex[6*c+3+part2] = vertex[6*c+0];
 			vertex[6*c+4+part2] = vertex[6*c+1];
-			vertex[6*c+5+part2] = Vtarget[i] * z_range1;
+			vertex[6*c+5+part2] = Vtarget[c] * z_range1;
 			vcolor[6*c+0+part2] = 1.0f;
 			vcolor[6*c+1+part2] = 0.0f;
 			vcolor[6*c+2+part2] = 0.0f;
@@ -177,8 +176,6 @@ struct Quiver {
 		glColorPointer(3, GL_FLOAT, 0, vcolor.data());
 		glEnableClientState(GL_VERTEX_ARRAY);
 		glEnableClientState(GL_COLOR_ARRAY);
-		//for (int i=0; i<2*N; i++)
-		//	glDrawArrays(GL_LINES, 2*i, 2);
 		glDrawArrays(GL_LINES, 0, 4*N);
 		glDisableClientState(GL_VERTEX_ARRAY);
 		glDisableClientState(GL_COLOR_ARRAY);
@@ -210,7 +207,7 @@ public:
 		//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glEnable(GL_LINE_SMOOTH);
 		glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
-		glEnable(GL_DEPTH_TEST);
+		//glEnable(GL_DEPTH_TEST);
 	}
 
 	void paintGL()
