@@ -36,7 +36,7 @@ class ValueWIRES:
             arr_stable += self.TAU*arr_online
         self.V_stable.model.set_weights(ws_stable)
 
-    def learn_iteration(self, buf):
+    def learn_iteration(self, buf, dry_run):
         BATCH = len(buf)
         input  = np.zeros( (BATCH, xp.STATE_DIM) )
         target = np.zeros( (BATCH, 1) )
@@ -84,6 +84,10 @@ class ValueWIRES:
             xp.export_viz.step[x.viz_n] = x.step
             xp.export_viz.episode[x.viz_n] = x.episode
 
-        loss = self.V_online.model.train_on_batch(input, target)
-        print "train_on_batch %0.5f" % loss
-        self._slowly_transfer_weights_to_stable_network()
+        if dry_run:
+            loss = self.V_online.model.test_on_batch(input, target)
+            print("WIRES (test) %0.5f" % loss)
+        else:
+            loss = self.V_online.model.train_on_batch(input, target)
+            print("WIRES %0.5f" % loss)
+            self._slowly_transfer_weights_to_stable_network()

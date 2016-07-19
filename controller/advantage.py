@@ -19,7 +19,7 @@ class Advantage:
         from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
         self.model.compile(loss='mean_squared_error', optimizer=Adam(lr=0.0005, beta_2=0.9999))
 
-    def learn_iteration(self, buf):
+    def learn_iteration(self, buf, dry_run):
         BATCH = len(buf)
         input  = np.zeros( (BATCH, xp.STATE_DIM + xp.ACTION_DIM) )
         target = np.zeros( (BATCH, 1) )
@@ -31,5 +31,9 @@ class Advantage:
         for i,x in enumerate(buf):
             target[i,0] = x.nv - x.v
 
-        loss = self.model.train_on_batch(input, target)
-        print "advantage %0.5f" % loss
+        if dry_run:
+            loss = self.model.test_on_batch(input, target)
+            print("advantage (test) %0.5f" % loss)
+        else:
+            loss = self.model.train_on_batch(input, target)
+            print("advantage %0.5f" % loss)

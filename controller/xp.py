@@ -8,6 +8,8 @@ replay_mutex = Lock()
 replay = []
 replay_shuffled = []
 replay_important = []
+epoch = 0.0
+epoch_sample_counter = 0
 
 def init_from_env(env):
     global STATE_DIM, ACTION_DIM
@@ -85,6 +87,22 @@ def export_viz_open(dir, mode="w+"):
     v = ExportViz()
     v.reopen(dir, N, STATE_DIM, mode)
     export_viz = v
+    with replay_mutex:
+        for x in replay:
+            x.nv = 0
+            export_viz.state1[x.viz_n] = x.s
+            export_viz.state2[x.viz_n] = x.sn
+            export_viz.Vtarget[x.viz_n]  = x.r
+            export_viz.Vonline1[x.viz_n] = x.r
+            export_viz.Vstable1[x.viz_n] = x.r
+            export_viz.Vstable2[x.viz_n] = x.r
+            export_viz.step[x.viz_n] = x.step
+            if x.jpeg:
+                import os
+                j = os.path.basename(x.jpeg)
+                for c in range(len(j)):
+                    assert c < 15
+                    export_viz.jpeg[x.viz_n*16 + c] = ord(j[c])
 
 def shuffle():
     global replay_shuffled
@@ -114,7 +132,9 @@ def batch(BATCH_SIZE):
                 #replay_shuffled.insert(half_replay, x)
             #else:
             replay_shuffled.append(x)
-    #print [x.sampled_counter for x in buf], len(replay_shuffled)
-    assert( len(buf)==BATCH_SIZE )
+        #print [x.sampled_counter for x in buf], len(replay_shuffled)
+        assert( len(buf)==BATCH_SIZE )
+        global epoch_sample_counter, epoch
+        epoch_sample_counter += BATCH_SIZE
+        epoch = float(epoch_sample_counter) / len(replay)
     return buf
-

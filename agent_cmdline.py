@@ -37,24 +37,9 @@ if args.loadxp:
     print("Total {} samples".format(len(xp.replay)))
 print
 
-xp.export_viz_open(dir)
-
-for x in xp.replay:
-    x.nv = 0
-    xp.export_viz.state1[x.viz_n] = x.s   
-    xp.export_viz.state2[x.viz_n] = x.sn
-    xp.export_viz.Vtarget[x.viz_n]  = x.r
-    xp.export_viz.Vonline1[x.viz_n] = x.r
-    xp.export_viz.Vstable1[x.viz_n] = x.r
-    xp.export_viz.Vstable2[x.viz_n] = x.r
-    xp.export_viz.step[x.viz_n] = x.step
-    if x.jpeg:
-        j = os.path.basename(x.jpeg)
-        for c in range(len(j)):
-            assert c < 15
-            xp.export_viz.jpeg[x.viz_n*16 + c] = ord(j[c])
-del xp.export_viz
-xp.export_viz_open(dir, "r+")
+xp.export_viz_open(dir, "w+")
+#del xp.export_viz
+#xp.export_viz_open(dir, "r+")
 
 if args.viz_only:
     sys.exit(0)
@@ -87,8 +72,12 @@ def key_press(key, mod):
     if key==32: human_sets_pause = not human_sets_pause
     if key==0xff0d: human_wants_restart = True
     if key==kk.F1: alg.pause = not alg.pause
-    if key==kk.F2: alg.save()
-    if key==kk.F3: alg.load()
+    if key==kk.F2:
+        alg.save(dir + "/_weights")
+    if key==kk.F3:
+        alg.load(dir + "/_weights")
+        xp.export_viz_open(dir, "r+")
+
 def key_release(key, mod):
     pass
 def close():
@@ -110,7 +99,7 @@ def rollout():
         env.render()
         if done: break
         if human_wants_restart: break
-        while human_sets_pause and not human_wants_quit:
+        while human_sets_pause and not human_wants_quit and not human_wants_restart:
             env.viewer.window.dispatch_events()
             import time
             time.sleep(0.2)
@@ -118,7 +107,7 @@ def rollout():
 
 while not human_wants_quit:
     rollout()
-    
+
 alg.quit = True
 learn_thread.join()
 #pyglet.app.run()
