@@ -62,20 +62,9 @@ if args.viz_only:
 print("control-from-iteration: {}".format(args.control_from_iteration))
 print("args.learn={}".format(args.learn[0]))
 
-if args.learn[0]=="GRAVITY":
-    #env = gym.make( env_type )
-    #print env
-    import controller.value_iteration_with_gravity as gravity
-    from threading import Thread
-    import pyglet
-    gravity.V_online = gravity.VNetwork()
-    gravity.V_stable = gravity.VNetwork()
-    learn_thread = Thread(target=gravity.learn_thread_func)
-    learn_thread.daemon = True
-    learn_thread.start()
-    pyglet.app.run()
+env = gym.make(env_type)
 
-elif args.learn[0]=="WAR":
+if args.learn[0]=="WAR":
     from threading import Thread
     import pyglet
     import controller.algo_wires_advantage_random as war
@@ -83,7 +72,53 @@ elif args.learn[0]=="WAR":
     learn_thread = Thread(target=alg.learn_thread_func)
     learn_thread.daemon = True
     learn_thread.start()
-    pyglet.app.run()
-
 else:
     print("unknown algorithm %s" % args.learn[0])
+    sys.exit(0)
+ 
+human_sets_pause = True
+alg.pause = True
+human_wants_quit = False
+human_wants_restart = False
+
+from pyglet.window import key as kk
+def key_press(key, mod):
+    global human_wants_restart, human_sets_pause
+    if key==32: human_sets_pause = not human_sets_pause
+    if key==0xff0d: human_wants_restart = True
+    if key==kk.F1: alg.pause = not alg.pause
+    if key==kk.F2: alg.save()
+    if key==kk.F3: alg.load()
+def key_release(key, mod):
+    pass
+def close():
+    global human_wants_quit, human_wants_restart, human_sets_pause
+    human_wants_quit = True
+
+s = env.reset()
+env.render()
+env.viewer.window.on_key_press = key_press
+env.viewer.window.on_key_release = key_release
+env.viewer.window.on_close = close
+
+def rollout():
+    global human_wants_quit, human_wants_restart, human_sets_pause
+    human_wants_restart = False
+    while not human_wants_quit:
+        a = env.action_space.sample()
+        s, r, done, info = env.step(a)
+        env.render()
+        if done: break
+        if human_wants_restart: break
+        while human_sets_pause and not human_wants_quit:
+            env.viewer.window.dispatch_events()
+            import time
+            time.sleep(0.2)
+    s = env.reset()
+
+while not human_wants_quit:
+    rollout()
+    
+alg.quit = True
+learn_thread.join()
+#pyglet.app.run()
