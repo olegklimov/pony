@@ -14,13 +14,21 @@ s = env.reset()
 xp.init_from_env(env)
 
 step = 0
-for e in range(20):
+for e in range(40):
     s = env.reset()
     ts = 0
     episode = []
+    s_moving_average = 0
     while True:
-        a = w.heuristic(env, s)
+        a  = w.heuristic(env, s)
+        a += np.random.uniform( low=-0.1, high=+0.1, size=(4,) ) 
+
         sn, r, done, info = env.step(a)
+
+        s_moving_average = 0.9*s_moving_average + 0.1*s
+        stuck = np.linalg.norm( s_moving_average - s) < 0.01
+        if stuck: done = True
+
         pt = xp.XPoint(s, a, r, sn, ts, done)
         s = sn
         step += 1
