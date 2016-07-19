@@ -91,18 +91,18 @@ env.viewer.window.on_key_release = key_release
 env.viewer.window.on_close = close
 
 def rollout():
-    global human_wants_quit, human_wants_restart, human_sets_pause
+    global human_wants_quit, human_wants_restart, human_sets_pause, s
     human_wants_restart = False
     while not human_wants_quit:
-        a = env.action_space.sample()
+        a = alg.control(s, env.action_space)
         s, r, done, info = env.step(a)
         env.render()
         if done: break
-        if human_wants_restart: break
         while human_sets_pause and not human_wants_quit and not human_wants_restart:
             env.viewer.window.dispatch_events()
             import time
             time.sleep(0.2)
+        if human_wants_restart: break
     s = env.reset()
 
 while not human_wants_quit:

@@ -15,7 +15,8 @@ class Advantage:
         from keras.regularizers import l2
         self.model.add(Dense(256, activation='relu', W_regularizer=l2(0.01), batch_input_shape=(None, xp.STATE_DIM+xp.ACTION_DIM)))
         self.model.add(Dense(256, activation='relu', W_regularizer=l2(0.01)))
-        self.model.add(Dense(1, W_regularizer=l2(0.01)))
+        self.output = Dense(1, W_regularizer=l2(0.01))
+        self.model.add(self.output)
         from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
         self.model.compile(loss='mean_squared_error', optimizer=Adam(lr=0.0005, beta_2=0.9999))
 
@@ -37,3 +38,13 @@ class Advantage:
         else:
             loss = self.model.train_on_batch(input, target)
             print("advantage %0.5f" % loss)
+
+    def estimate(self, s, these_actions):
+        A = len(these_actions)
+        input  = np.zeros( (A, xp.STATE_DIM + xp.ACTION_DIM) )
+        for i in range(A):
+            input[i][:xp.STATE_DIM] = s
+            input[i][xp.STATE_DIM:] = these_actions[i]
+        r = self.model.predict_on_batch(input)
+        return r
+        
