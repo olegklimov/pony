@@ -5,11 +5,11 @@ import keras
 import keras.models
 from keras import backend as K
 from keras.layers.core import Dense
-import xp
 
-BATCH = 200
-GAMMA = 0.995
-TAU   = 0.01
+import xp
+# Uses:
+# xp.replay
+# xp.STATE_DIM
 
 class VNetwork:
     def __init__(self):
@@ -21,27 +21,37 @@ class VNetwork:
         def one_sided_l2(y_true, y_pred):
             return K.mean(K.square(y_true - y_pred), axis=-1)
         from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
-        #sgd = SGD(lr=0.0001, decay=0, momentum=0.0, nesterov=False)
         self.model.compile(loss=one_sided_l2, optimizer=Adam(lr=0.0005, beta_2=0.9999)) #clipvalue=0.1
 
-V_online = None
-V_stable = None
+class ValueWIRES:
+    def __init__(self, GAMMA = 0.995, TAU = 0.01):
+        self.GAMMA = GAMMA
+        self.TAU = TAU
+        self.V_online = VNetwork()
+        self.V_stable = VNetwork()
 
-def minibatch_from_replay_buffer():
-    while 1:
-        buf = xp.batch(BATCH)
+    def _slowly_transfer_weights_to_stable_network(self):
+        ws_online = self.V_online.model.get_weights()
+        ws_stable = self.V_stable.model.get_weights()
+        for arr_online, arr_stable in zip(ws_online, ws_stable):
+            arr_stable *= (1-self.TAU)
+            arr_stable += self.TAU*arr_online
+        self.V_stable.model.set_weights(ws_stable)
+
+    def learn_iteration(self, buf):
+        BATCH = len(buf)
         input  = np.zeros( (BATCH, xp.STATE_DIM) )
         target = np.zeros( (BATCH, 1) )
 
         # collect current values
         for i,x in enumerate(buf):
             input[i] = x.sn
-        next_v = V_stable.model.predict(input)
+        next_v = self.V_stable.model.predict(input)
 
         for i,x in enumerate(buf):
             input[i] = x.s
-        stable_v = V_stable.model.predict(input)
-        online_v = V_online.model.predict(input)
+        stable_v = self.V_stable.model.predict(input)
+        online_v = self.V_online.model.predict(input)
 
         for i,x in enumerate(buf):
             x.nv = next_v[i][0]
@@ -59,7 +69,7 @@ def minibatch_from_replay_buffer():
                 episode += 1
             if not x.terminal or x.r > 0:
                 v  = max(v, x.nv)
-            v *= GAMMA
+            v *= self.GAMMA
             v += x.r
             x.target = v
             x.episode = episode
@@ -76,28 +86,6 @@ def minibatch_from_replay_buffer():
             xp.export_viz.step[x.viz_n] = x.step
             xp.export_viz.episode[x.viz_n] = x.episode
 
-        yield (input, target)
-
-quit_flag = False
-
-def slowly_transfer_weights_to_stable_network():
-    ws_online = V_online.model.get_weights()
-    ws_stable = V_stable.model.get_weights()
-    for arr_online, arr_stable in zip(ws_online, ws_stable):
-        arr_stable *= (1-TAU)
-        arr_stable += TAU*arr_online
-    V_stable.model.set_weights(ws_stable)
-
-class BatchEndCallback(keras.callbacks.Callback):
-    def on_batch_end(self, batch, logs={}):
-        if quit_flag: raise SystemExit("quit")
-        print "train %0.5f" % logs.get('loss')
-        slowly_transfer_weights_to_stable_network()
-
-def learn_thread_func():
-    V_online.model.fit_generator(
-        minibatch_from_replay_buffer(),
-        samples_per_epoch=1, nb_epoch=100000, verbose=0, max_q_size=1,
-        callbacks=[BatchEndCallback()] # Inside callback set new y_ddqn target every minibatch
-        );
-
+        loss = self.V_online.model.train_on_batch(input, target)
+        print "train_on_batch %0.5f" % loss
+        self._slowly_transfer_weights_to_stable_network()

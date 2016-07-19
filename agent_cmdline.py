@@ -75,16 +75,15 @@ if args.learn[0]=="GRAVITY":
     learn_thread.start()
     pyglet.app.run()
 
-elif args.learn[0]=="WIRES":
+elif args.learn[0]=="WAR":
     from threading import Thread
     import pyglet
-    import controller.value_WIRES as wires
-    wires.V_online = wires.VNetwork()
-    wires.V_stable = wires.VNetwork()
-    learn_thread = Thread(target=wires.learn_thread_func)
+    import controller.algo_wires_advantage_random as war
+    alg = war.WiresAdvantageRandom()
+    learn_thread = Thread(target=alg.learn_thread_func)
     learn_thread.daemon = True
     learn_thread.start()
     pyglet.app.run()
 
 else:
-    parser.print_help()
+    print("unknown algorithm %s" % args.learn[0])
