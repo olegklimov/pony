@@ -72,6 +72,7 @@ class ExportViz:
         self.Vstable1 = np.memmap(dir+"/Vstable1", mode=mode, shape=(N,), dtype=np.float32)
         self.Vstable2 = np.memmap(dir+"/Vstable2", mode=mode, shape=(N,), dtype=np.float32)
         self.step     = np.memmap(dir+"/step",    mode=mode, shape=(N,), dtype=np.int32)
+        self.episode  = np.memmap(dir+"/episode", mode=mode, shape=(N,), dtype=np.int32)
         self.jpeg     = np.memmap(dir+"/jpegmap", mode=mode, shape=(N*16,), dtype=np.int8)
 
 export_viz = None

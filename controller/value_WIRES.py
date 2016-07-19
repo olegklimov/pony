@@ -21,7 +21,7 @@ class VNetwork:
         def one_sided_l2(y_true, y_pred):
             return K.mean(K.square(y_true - y_pred), axis=-1)
         from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
-        sgd = SGD(lr=0.0001, decay=0, momentum=0.0, nesterov=False)
+        #sgd = SGD(lr=0.0001, decay=0, momentum=0.0, nesterov=False)
         self.model.compile(loss=one_sided_l2, optimizer=Adam(lr=0.0005, beta_2=0.9999)) #clipvalue=0.1
 
 V_online = None
@@ -51,15 +51,18 @@ def minibatch_from_replay_buffer():
         # WIRES
         N = len(xp.replay)
         v = 0
+        episode = 0
         for i in range(N-1,-1,-1):
             x = xp.replay[i]
             if x.terminal:
                 v = 0
+                episode += 1
             if not x.terminal or x.r > 0:
                 v  = max(v, x.nv)
             v *= GAMMA
             v += x.r
             x.target = v
+            x.episode = episode
 
         # save
         for i,x in enumerate(buf):
@@ -71,6 +74,7 @@ def minibatch_from_replay_buffer():
             xp.export_viz.Vonline1[x.viz_n] = x.ov
             xp.export_viz.Vtarget[x.viz_n]  = x.target
             xp.export_viz.step[x.viz_n] = x.step
+            xp.export_viz.episode[x.viz_n] = x.episode
 
         yield (input, target)
 
