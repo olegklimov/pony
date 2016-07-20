@@ -34,7 +34,7 @@ class Advantage:
 
         if dry_run:
             loss = self.model.test_on_batch(input, target)
-            print("advantage (test) %0.5f" % loss)
+            #print("advantage (test) %0.5f" % loss)
         else:
             loss = self.model.train_on_batch(input, target)
             print("advantage %0.5f" % loss)

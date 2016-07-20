@@ -36,6 +36,9 @@ class XPoint:
         self.viz_n = 0
         self.jpeg = jpeg
 
+        self.v = 0
+        self.nv = 0
+
     def to_jsonable(self):
         j = { "s": self.s.tolist(), "sn": self.sn.tolist(), "a": self.a.tolist(), "r": self.r, "step": self.step }
         if self.jpeg is not None: j["jpeg"] = self.jpeg
@@ -60,10 +63,12 @@ def save_lowlevel(fn, buf):
 
 def load(fn):
     global replay
-    replay = load_lowlevel(fn)
+    with replay_mutex:
+        replay = load_lowlevel(fn)
 
 def save(fn):
-    save_lowlevel(fn, replay)
+    with replay_mutex:
+        save_lowlevel(fn, replay)
 
 class ExportViz:
     def reopen(self, dir, N, STATE_DIM, mode):
@@ -80,43 +85,45 @@ class ExportViz:
 export_viz = None
 
 def export_viz_open(dir, mode="w+"):
+    'with replay_mutex'
     N = len(replay)
-    print "EXPORT VIZ N=%i" % N
+    #print "EXPORT VIZ N=%i" % N
     global export_viz
     export_viz = None
     v = ExportViz()
     v.reopen(dir, N, STATE_DIM, mode)
     export_viz = v
-    with replay_mutex:
-        for x in replay:
-            x.nv = 0
-            export_viz.state1[x.viz_n] = x.s
-            export_viz.state2[x.viz_n] = x.sn
-            export_viz.Vtarget[x.viz_n]  = x.r
-            export_viz.Vonline1[x.viz_n] = x.r
-            export_viz.Vstable1[x.viz_n] = x.r
-            export_viz.Vstable2[x.viz_n] = x.r
-            export_viz.step[x.viz_n] = x.step
-            if x.jpeg:
-                import os
-                j = os.path.basename(x.jpeg)
-                for c in range(len(j)):
-                    assert c < 15
-                    export_viz.jpeg[x.viz_n*16 + c] = ord(j[c])
+    for x in replay:
+        if x.v: continue
+        export_viz.state1[x.viz_n] = x.s
+        export_viz.state2[x.viz_n] = x.sn
+        export_viz.Vtarget[x.viz_n]  = x.r
+        export_viz.Vonline1[x.viz_n] = x.r
+        export_viz.Vstable1[x.viz_n] = x.r
+        export_viz.Vstable2[x.viz_n] = x.r
+        export_viz.step[x.viz_n] = x.step
+        if x.jpeg:
+            import os
+            j = x.jpeg[len(dir)+1:]
+            for c in range(len(j)):
+                assert c < 15
+                export_viz.jpeg[x.viz_n*16 + c] = ord(j[c])
+        else:
+            export_viz.jpeg[x.viz_n*16 + 0] = 0
 
 def shuffle():
+    'with replay_mutex'
     global replay_shuffled
     import random
-    with replay_mutex:
-        N = len(replay)
-        for n in range(N):
-            replay[n].viz_n = n
-        replay_shuffled = replay[:]
-        random.shuffle(replay_shuffled)
+    N = len(replay)
+    for n in range(N):
+        replay[n].viz_n = n
+    replay_shuffled = replay[:]
+    random.shuffle(replay_shuffled)
 
 def batch(BATCH_SIZE):
-    half_replay = len(replay_shuffled) // 2
     with replay_mutex:
+        half_replay = len(replay_shuffled) // 2
         buf = []
         while len(buf) < BATCH_SIZE:
             x = replay_shuffled.pop(0)

@@ -65,6 +65,19 @@ struct Quiver {
 		file_jpeg.open(dir + "/jpegmap");
 		jpeg_dir = dir;
 	}
+	
+	void close()
+	{
+		file_state1.close();
+		file_state2.close();
+		file_Vonline1.close();
+		file_Vstable1.close();
+		file_Vstable2.close();
+		file_Vtarget.close();
+		file_step.close();
+		file_episode.close();
+		file_jpeg.close();
+	}
 
 	int episode_of(int n)
 	{
@@ -335,11 +348,15 @@ public:
 			//glEnd();
 
 			QImage test(q->jpeg_of(closest_indx).c_str());
-			glRasterPos3f( x, y, -0.10 );
-			glPixelZoom(1.0, -1.0);
-			glDrawPixels(test.width(), test.height(), 
-				GL_BGRA, GL_UNSIGNED_BYTE, 
-				test.bits() );
+			if (test.isNull()) {
+				fprintf(stderr, "cannot load jpeg '%s'\n", q->jpeg_of(closest_indx).c_str());
+			} else {
+				glRasterPos3f( x, y, -0.10 );
+				glPixelZoom(1.0, -1.0);
+				glDrawPixels(test.width(), test.height(), 
+					GL_BGRA, GL_UNSIGNED_BYTE, 
+					test.bits() );
+			}
 		}
 	}
 
@@ -441,24 +458,30 @@ class VizWindow: public QWidget {
 public:
 	Viz* viz_widget;
 	QGridLayout* grid;
-	
+
 	QDoubleSpinBox* z_range;
 	QDoubleSpinBox* xy_range;
-	
+
 	QSettings* ini;
 	QTimer* timer;
-	
+	QTimer* timer_long;
+
 	QRadioButton* radio_tsne;
 	QRadioButton* radio_axis;
 	QSpinBox* axis1;
 	QSpinBox* axis2;
-	
+
 	VizWindow(const std::string& dir):
-		QWidget(0)
+		QWidget(0),
+		dir(dir)
 	{
 		timer = new QTimer(this);
 		QObject::connect(timer, SIGNAL(timeout()), this, SLOT(timeout()));
 		timer->start(1000/30);
+		
+		timer_long = new QTimer(this);
+		QObject::connect(timer_long, SIGNAL(timeout()), this, SLOT(timeout_long()));
+		timer_long->start(1000/30);
 		
 		ini = new QSettings( (dir + "/viz.ini").c_str(), QSettings::IniFormat, this);
 		grid = new QGridLayout();
@@ -520,6 +543,8 @@ public:
 		ini->setValue("xy_axis_n2", axis2->value());
 	}
 
+	std::string dir;
+
 public slots:
 	void timeout()
 	{
@@ -534,6 +559,14 @@ public slots:
 		viz_widget->xrot += 0.01;
 		viz_widget->updateGL();
 	}
+
+	void timeout_long()
+	{
+		if (viz_widget->q) {
+			viz_widget->q->close();
+			viz_widget->q->open(dir);
+		}
+	}
 };
 
 int main(int argc, char *argv[])
@@ -543,13 +576,12 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 	QApplication app(argc, argv);
-	std::string dir = argv[1];
-	VizWindow window(dir);
+	VizWindow window(argv[1]);
 	try {
 		shared_ptr<Quiver> q;
 		q.reset(new Quiver);
-		q->open(dir);
 		window.viz_widget->q = q;
+		window.timeout_long();
 
 	} catch (const std::exception& e) {
 		fprintf(stderr, "ERROR: %s\n", e.what());

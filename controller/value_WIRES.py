@@ -86,7 +86,7 @@ class ValueWIRES:
 
         if dry_run:
             loss = self.V_online.model.test_on_batch(input, target)
-            print("WIRES (test) %0.5f" % loss)
+            #print("WIRES (test) %0.5f" % loss)
         else:
             loss = self.V_online.model.train_on_batch(input, target)
             print("WIRES %0.5f" % loss)
