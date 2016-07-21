@@ -47,4 +47,4 @@ class Advantage:
             input[i][xp.STATE_DIM:] = these_actions[i]
         r = self.model.predict_on_batch(input)
         return r
-        
+

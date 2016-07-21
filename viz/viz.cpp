@@ -237,6 +237,10 @@ struct Quiver {
 		glVertexPointer(3, GL_FLOAT, 0, vertex.data());
 		glColorPointer(3, GL_FLOAT, 0, vcolor.data());
 		int part2 = N*2;
+		glLineWidth(1.0);
+		glEnable(GL_LINE_SMOOTH);
+		glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+
 		glDrawArrays(GL_LINES, 0,     2*render_N);
 		if (visible_target)
 			glDrawArrays(GL_LINES, part2, 2*render_N);
@@ -273,7 +277,6 @@ public:
 		qglClearColor(Qt::black);
 		//glEnable(GL_BLEND);
 		//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glEnable(GL_LINE_SMOOTH);
 		glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
 		glEnable(GL_DEPTH_TEST);
 	}
@@ -350,9 +353,15 @@ public:
 			//glVertex3f(x, y,-0.10);
 			//glEnd();
 
-			QImage test(q->jpeg_of(closest_indx).c_str());
+			std::string jpeg = q->jpeg_of(closest_indx);
+			if (jpeg_reported != jpeg) {
+				jpeg_reported = jpeg;
+				printf("jpeg '%s'\n", jpeg.c_str());
+			}
+
+			QImage test(jpeg.c_str());
 			if (test.isNull()) {
-				fprintf(stderr, "cannot load jpeg '%s'\n", q->jpeg_of(closest_indx).c_str());
+				fprintf(stderr, "cannot load jpeg '%s'\n", jpeg.c_str());
 			} else {
 				glRasterPos3f( x, y, -0.10 );
 				glPixelZoom(1.0, -1.0);
@@ -362,6 +371,8 @@ public:
 			}
 		}
 	}
+	
+	std::string jpeg_reported;
 
 	void resizeGL(int w, int h)
 	{

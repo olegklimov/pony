@@ -42,7 +42,8 @@ if args.loadxp:
     print("Total {} samples".format(len(xp.replay)))
 print
 
-xp.export_viz_open(dir, "w+")
+try: xp.export_viz_open(dir, "r+")
+except: xp.export_viz_open(dir, "w+")
 
 if args.viz_only:
     sys.exit(0)
@@ -76,7 +77,9 @@ def key_press(key, mod):
     global human_wants_restart, human_sets_pause, human_records_xp
     if key==32: human_sets_pause = not human_sets_pause
     elif key==0xff0d: human_wants_restart = True
-    elif key==kk.F1: alg.pause = not alg.pause
+    elif key==kk.F1:
+        alg.pause = not alg.pause
+        print("alg.pause=%i" % (alg.pause))
     elif key==kk.F2:
         alg.save(dir + "/_weights")
     elif key==kk.F3:
@@ -119,8 +122,11 @@ def rollout():
         s = sn
         a = alg.control(s, env.action_space)
         sn, r, done, info = env.step(a)
+        ts += 1
+        if ts > env.spec.timestep_limit:
+            done = True
         pt = xp.XPoint(s, a, r, sn, ts, done)
-        
+
         if human_records_xp and (global_step_counter % 5 == 0 or done):
             rgb = env.render("rgb_array")
             try: os.mkdir(dir + "/" + prefix)
@@ -138,9 +144,8 @@ def rollout():
         if human_records_xp:
             track.append(pt)
         if done: break
-        ts += 1
         global_step_counter += 1
-    if track:
+    if track and not human_wants_restart:
         new_xp.extend(track)
         with xp.replay_mutex:
             xp.replay.extend(track)
