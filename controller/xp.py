@@ -74,10 +74,13 @@ class ExportViz:
     def reopen(self, dir, N, STATE_DIM, mode):
         self.state1   = np.memmap(dir+"/state1",  mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
         self.state2   = np.memmap(dir+"/state2",  mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
-        self.Vtarget  = np.memmap(dir+"/Vtarget", mode=mode, shape=(N,), dtype=np.float32)
-        self.Vonline1 = np.memmap(dir+"/Vonline1", mode=mode, shape=(N,), dtype=np.float32)
+        self.state_trans  = np.memmap(dir+"/state_transition", mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
+        self.state_policy = np.memmap(dir+"/state_policy", mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
         self.Vstable1 = np.memmap(dir+"/Vstable1", mode=mode, shape=(N,), dtype=np.float32)
         self.Vstable2 = np.memmap(dir+"/Vstable2", mode=mode, shape=(N,), dtype=np.float32)
+        self.Vonline1 = np.memmap(dir+"/Vonline1", mode=mode, shape=(N,), dtype=np.float32)
+        self.Vtarget  = np.memmap(dir+"/Vtarget", mode=mode, shape=(N,), dtype=np.float32)
+        self.Vpolicy  = np.memmap(dir+"/Vpolicy", mode=mode, shape=(N,), dtype=np.float32)
         self.step     = np.memmap(dir+"/step",    mode=mode, shape=(N,), dtype=np.int32)
         self.episode  = np.memmap(dir+"/episode", mode=mode, shape=(N,), dtype=np.int32)
         self.jpeg     = np.memmap(dir+"/jpegmap", mode=mode, shape=(N*16,), dtype=np.int8)
@@ -97,10 +100,13 @@ def export_viz_open(dir, mode="w+"):
         if x.v: continue
         export_viz.state1[x.viz_n] = x.s
         export_viz.state2[x.viz_n] = x.sn
+        export_viz.state_trans[x.viz_n]  = x.s
+        export_viz.state_policy[x.viz_n] = x.sn
         export_viz.Vtarget[x.viz_n]  = x.r
         export_viz.Vonline1[x.viz_n] = x.r
         export_viz.Vstable1[x.viz_n] = x.r
         export_viz.Vstable2[x.viz_n] = x.r
+        export_viz.Vpolicy[x.viz_n]  = x.r
         export_viz.step[x.viz_n] = x.step
         if x.jpeg:
             import os

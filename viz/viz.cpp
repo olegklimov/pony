@@ -37,10 +37,13 @@ struct Quiver {
 	int STATEDIM;
 	mapped_file_source file_state1;
 	mapped_file_source file_state2;
+	mapped_file_source file_state_trans;
+	mapped_file_source file_state_policy;
 	mapped_file_source file_Vonline1;
 	mapped_file_source file_Vstable1;
 	mapped_file_source file_Vstable2;
 	mapped_file_source file_Vtarget;
+	mapped_file_source file_Vpolicy;
 	mapped_file_source file_step;
 	mapped_file_source file_episode;
 	mapped_file_source file_jpeg;
@@ -56,10 +59,13 @@ struct Quiver {
 		tsne_stop();
 		file_state1.open(dir + "/state1");
 		file_state2.open(dir + "/state2");
+		file_state_trans.open(dir + "/state_transition");
+		file_state_policy.open(dir + "/state_policy");
 		file_Vonline1.open(dir + "/Vonline1");
 		file_Vstable1.open(dir + "/Vstable1");
 		file_Vstable2.open(dir + "/Vstable2");
 		file_Vtarget.open(dir + "/Vtarget");
+		file_Vpolicy.open(dir + "/Vpolicy");
 		file_step.open(dir + "/step");
 		file_episode.open(dir + "/episode");
 		file_jpeg.open(dir + "/jpegmap");
@@ -70,10 +76,13 @@ struct Quiver {
 	{
 		file_state1.close();
 		file_state2.close();
+		file_state_trans.close();
+		file_state_policy.close();
 		file_Vonline1.close();
 		file_Vstable1.close();
 		file_Vstable2.close();
 		file_Vtarget.close();
+		file_Vpolicy.close();
 		file_step.close();
 		file_episode.close();
 		file_jpeg.close();
@@ -101,7 +110,9 @@ struct Quiver {
 		float xy_range,
 		float z_range,
 		bool tsne,
-		int axis1, int axis2 // if tsne false
+		int axis1, int axis2, // if tsne false
+		bool mode_trans,
+		bool mode_policy
 		)
 	{
 		int new_N = file_Vonline1.size() / sizeof(float);
@@ -111,6 +122,11 @@ struct Quiver {
 		if (N==0) return;
 		float* s1 = (float*) file_state1.data();
 		float* s2 = (float*) file_state2.data();
+		if (mode_trans) {
+			s2 = (float*) file_state_trans.data();
+		} else if (mode_policy) {
+			s2 = (float*) file_state_policy.data();
+		}
 		float* Vonline1 = (float*) file_Vonline1.data();
 		float* Vstable1 = (float*) file_Vstable1.data();
 		float* Vstable2 = (float*) file_Vstable2.data();
@@ -487,6 +503,9 @@ public:
 	QRadioButton* radio_axis;
 	QSpinBox* axis1;
 	QSpinBox* axis2;
+	QRadioButton* mode_value;
+	QRadioButton* mode_transition_acc;
+	QRadioButton* mode_policy;
 
 	VizWindow(const std::string& dir):
 		QWidget(0),
@@ -540,6 +559,24 @@ public:
 			vbox->addWidget(axis2);
 			row++;
 		}
+		
+		{
+			QGroupBox* box = new QGroupBox(tr("Mode"));
+			mode_value = new QRadioButton("Value Iteration");
+			mode_transition_acc = new QRadioButton("Transition Acc");
+			mode_policy = new QRadioButton("Policy");
+			mode_value->setChecked(ini->value("mode_value").toBool());
+			mode_transition_acc->setChecked(ini->value("mode_transition_acc").toBool());
+			mode_policy->setChecked(ini->value("mode_policy").toBool());
+			grid->addWidget(box, row, 0, 1, 2);
+			QVBoxLayout* vbox = new QVBoxLayout;
+			box->setLayout(vbox);
+			vbox->addWidget(mode_value);
+			vbox->addWidget(mode_transition_acc);
+			vbox->addWidget(mode_policy);
+			row++;
+		}
+		
 
 		grid->setRowStretch(row, 1);
 		grid->setColumnStretch(2, 1);
@@ -556,8 +593,9 @@ public:
 		ini->setValue("z_range", z_range->value());
 		ini->setValue("xy_tsne", radio_tsne->isChecked());
 		ini->setValue("xy_axis", radio_axis->isChecked());
-		ini->setValue("xy_axis_n1", axis1->value());
-		ini->setValue("xy_axis_n2", axis2->value());
+		ini->setValue("mode_value", mode_value->isChecked());
+		ini->setValue("mode_transition_acc", mode_transition_acc->isChecked());
+		ini->setValue("mode_policy", mode_policy->isChecked());
 	}
 
 	std::string dir;
@@ -570,7 +608,8 @@ public slots:
 				viz_widget->q,
 				xy_range->value(),
 				z_range->value(),
-				radio_tsne->isChecked(), axis1->value(), axis2->value()
+				radio_tsne->isChecked(), axis1->value(), axis2->value(),
+				mode_transition_acc->isChecked(), mode_policy->isChecked()
 				);
 		}
 		viz_widget->xrot += 0.01;
