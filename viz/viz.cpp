@@ -181,6 +181,8 @@ struct Quiver {
 	}
 
 	int render_N = 0;
+	bool visible_target = true;
+	
 	int tsne_iteration = 0;
 	std::vector<double> tsne_x1x2;
 	double tsne_error = 0;
@@ -236,7 +238,8 @@ struct Quiver {
 		glColorPointer(3, GL_FLOAT, 0, vcolor.data());
 		int part2 = N*2;
 		glDrawArrays(GL_LINES, 0,     2*render_N);
-		glDrawArrays(GL_LINES, part2, 2*render_N);
+		if (visible_target)
+			glDrawArrays(GL_LINES, part2, 2*render_N);
 
 		glVertexPointer(3, GL_FLOAT, 6*4, vertex.data());
 		glColorPointer(3, GL_FLOAT, 6*4, vcolor.data());
@@ -397,6 +400,9 @@ public:
 		if (kev->key()==Qt::Key_PageDown || kev->key()==Qt::Key_PageUp) {
 			double sign = kev->key()==Qt::Key_PageDown ?  -1 : +1;
 			user_z += sign * 0.02;
+		}
+		if (kev->key()==Qt::Key_QuoteLeft && q) {
+			q->visible_target ^= true;
 		}
 		updateGL();
 	}
