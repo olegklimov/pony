@@ -54,16 +54,19 @@ print("learn={}".format(args.learn[0]))
 env = gym.make(env_type)
 
 if args.learn[0]=="WAR":
-    from threading import Thread
-    import pyglet
     import controller.algo_wires_advantage_random as war
     alg = war.WiresAdvantageRandom()
-    learn_thread = Thread(target=alg.learn_thread_func)
-    learn_thread.daemon = True
-    learn_thread.start()
+elif args.learn[0]=="WTR":
+    import controller.algo_wires_transition_random as wtr
+    alg = wtr.WiresTransitionRandom()
 else:
     print("unknown algorithm %s" % args.learn[0])
     sys.exit(0)
+
+from threading import Thread
+learn_thread = Thread(target=alg.learn_thread_func)
+learn_thread.daemon = True
+learn_thread.start()
 
 human_sets_pause = True
 alg.pause = True
@@ -72,7 +75,9 @@ human_wants_restart = False
 human_records_xp = False
 new_xp = []
 
+import pyglet
 from pyglet.window import key as kk
+
 def key_press(key, mod):
     global human_wants_restart, human_sets_pause, human_records_xp
     if key==32: human_sets_pause = not human_sets_pause

@@ -136,3 +136,7 @@ class ValueWIRES:
             loss = self.V_online.model.train_on_batch(input, target)
             print("WIRES %0.5f" % loss)
             self._slowly_transfer_weights_to_stable_network()
+
+    def evaluate(self, sn):
+        return self.V_stable.model.predict(sn)
+
