@@ -123,14 +123,20 @@ def rollout():
     track = []
     ts = 0
     while not human_wants_quit:
-
         s = sn
         a = alg.control(s, env.action_space)
         sn, r, done, info = env.step(a)
         ts += 1
         if ts > env.spec.timestep_limit:
             done = True
+            print("time limit hit")
+        if human_wants_restart: 
+            done = True
+            r = -100.0
+            print("human -100")
         pt = xp.XPoint(s, a, r, sn, ts, done)
+
+        env.render()
 
         if human_records_xp and (global_step_counter % 5 == 0 or done):
             rgb = env.render("rgb_array")
@@ -139,18 +145,16 @@ def rollout():
             jpeg_name = dir + "/" + prefix + "/{:05}.jpg".format(global_step_counter)
             scipy.misc.imsave(jpeg_name, rgb)
             pt.jpeg = jpeg_name
-        else:
-            env.render()
+        track.append(pt)
+
         while human_sets_pause and not human_wants_quit and not human_wants_restart:
             env.viewer.window.dispatch_events()
             import time
             time.sleep(0.2)
-        if human_wants_restart: break
-        if human_records_xp:
-            track.append(pt)
-        if done: break
         global_step_counter += 1
-    if track and not human_wants_restart:
+        if done: break
+
+    if track and human_records_xp:
         new_xp.extend(track)
         with xp.replay_mutex:
             xp.replay.extend(track)
