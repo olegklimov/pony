@@ -30,8 +30,9 @@ class Transition:
 
         with self.model_mutex:
             test = self.model.predict(input)
-        for i,x in enumerate(buf):
-            xp.export_viz.state_trans[x.viz_n] = test[i] + x.s
+        with xp.replay_mutex:
+            for i,x in enumerate(buf):
+                xp.export_viz.state_trans[x.viz_n] = test[i] + x.s
 
         if dry_run:
             with self.model_mutex:
@@ -40,7 +41,7 @@ class Transition:
         else:
             with self.model_mutex:
                 loss = self.model.train_on_batch(input, target)
-            print("transition %0.5f" % loss)
+            #print("transition %0.5f" % loss)
 
     def predict(self, s_and_a):
         with self.model_mutex:
