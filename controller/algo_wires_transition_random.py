@@ -27,15 +27,20 @@ class WiresTransitionRandom(algo.Algorithm):
 
     def control(self, s, action_space):
         RAND = 50
-        v1   = np.zeros(shape=(RAND, xp.STATE_DIM + xp.ACTION_DIM))
-        for i in range(RAND):
-            v1[i, :xp.STATE_DIM] = s
-            v1[i, xp.STATE_DIM:] = action_space.sample()
-        print "v1", v1
-        v1sn = self.trans.predict(v1)
-        print "v1sn", v1sn
-        v1v  = self.wires.evaluate(v1sn)
-        print "v1v", v1v
-        v1i  = np.argmax(v1v)
-        print "v1i", v1i
-        return v1[v1i, xp.STATE_DIM:]
+        input = np.zeros(shape=(RAND, xp.STATE_DIM + xp.ACTION_DIM))
+        for c in range(10):
+            if c==0:
+                for i in range(RAND):
+                    input[i, xp.STATE_DIM:] = action_space.sample()
+            else:
+                k = 0.1 / c
+                for i in range(RAND):
+                    input[i, xp.STATE_DIM:] = best_action + k*action_space.sample()
+            v1sn = self.trans.predict(input)
+            v1v  = self.wires.evaluate(v1sn)
+            #v1v = np.zeros(shape=(xp.ACTION_DIM,))
+            v1i = np.argmax(v1v)
+            best_action = input[v1i, xp.STATE_DIM:]
+            #print "best_action", best_action
+        print "val%02i %0.2f" % (c, max(v1v))
+        return best_action

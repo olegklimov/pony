@@ -4,6 +4,7 @@ import keras.models
 from keras import backend as K
 from keras.layers.core import Dense
 from keras.engine import Layer
+from threading import Lock
 
 import xp
 # Uses:
@@ -38,7 +39,7 @@ class VNetwork:
             #return K.mean( (K.sign(y_true) + 1) * K.square(y_true - y_pred), axis=-1)
             #return \
             #    K.mean( (K.sign(y_true) + 1) * K.square(y_true - y_pred), axis=-1) + \
-            #    K.mean( (K.sign(y_true) - 1) * (-1) * K.square(K.max(y_pred, 0)), axis=-1)
+            #    K.mean( (K.sign(y_true) - 1) * (-1) * K.max(y_pred, 0), axis=-1)
         from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
         self.model.compile(loss=one_sided_l2, optimizer=Adam(lr=0.0005, beta_2=0.9999)) #clipvalue=0.1
 
@@ -48,14 +49,17 @@ class ValueWIRES:
         self.TAU = TAU
         self.V_online = VNetwork()
         self.V_stable = VNetwork()
+        self.stable_mutex = Lock()
 
     def _slowly_transfer_weights_to_stable_network(self):
         ws_online = self.V_online.model.get_weights()
-        ws_stable = self.V_stable.model.get_weights()
+        with self.stable_mutex:
+            ws_stable = self.V_stable.model.get_weights()
         for arr_online, arr_stable in zip(ws_online, ws_stable):
             arr_stable *= (1-self.TAU)
             arr_stable += self.TAU*arr_online
-        self.V_stable.model.set_weights(ws_stable)
+        with self.stable_mutex:
+            self.V_stable.model.set_weights(ws_stable)
 
     def learn_iteration(self, buf, dry_run):
         BATCH = len(buf)
@@ -67,11 +71,13 @@ class ValueWIRES:
         # collect current values
         for i,x in enumerate(buf):
             input[i] = x.sn
-        next_v = self.V_stable.model.predict(input[:BATCH])
+        with self.stable_mutex:
+            next_v = self.V_stable.model.predict(input[:BATCH])
 
         for i,x in enumerate(buf):
             input[i] = x.s
-        stable_v = self.V_stable.model.predict(input[:BATCH])
+        with self.stable_mutex:
+            stable_v = self.V_stable.model.predict(input[:BATCH])
         online_v = self.V_online.model.predict(input[:BATCH])
 
         for i,x in enumerate(buf):
@@ -138,5 +144,6 @@ class ValueWIRES:
             self._slowly_transfer_weights_to_stable_network()
 
     def evaluate(self, sn):
-        return self.V_stable.model.predict(sn)
+        with self.stable_mutex:
+            return self.V_stable.model.predict(sn)
 
