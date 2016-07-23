@@ -72,6 +72,7 @@ def save(fn):
 
 class ExportViz:
     def reopen(self, dir, N, STATE_DIM, mode):
+        self.N        = np.memmap(dir+"/N", mode=mode, shape=(1), dtype=np.int32)
         self.state1   = np.memmap(dir+"/state1",  mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
         self.state2   = np.memmap(dir+"/state2",  mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
         self.state_trans  = np.memmap(dir+"/state_transition", mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
@@ -96,6 +97,7 @@ def export_viz_open(dir, mode="w+"):
     v = ExportViz()
     v.reopen(dir, N, STATE_DIM, mode)
     export_viz = v
+    v.N[0] = N
     for x in replay:
         if x.v: continue
         export_viz.state1[x.viz_n] = x.s

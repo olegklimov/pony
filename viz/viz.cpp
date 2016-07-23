@@ -35,6 +35,7 @@ float line_vertex[] = {
 struct Quiver {
 	int N = 0;
 	int STATEDIM;
+	mapped_file_source file_N;
 	mapped_file_source file_state1;
 	mapped_file_source file_state2;
 	mapped_file_source file_state_trans;
@@ -52,11 +53,12 @@ struct Quiver {
 	std::vector<float> vertex; // x y z
 	std::vector<float> vcolor; // r g b
 	std::vector<int> rendered2index;
-	std::string jpeg_dir;
+	std::string dir;
 
-	void open(const std::string& dir)
+	void open(const std::string& dir_)
 	{
-		tsne_stop();
+		dir = dir_;
+		file_N.open(dir + "/N");
 		file_state1.open(dir + "/state1");
 		file_state2.open(dir + "/state2");
 		file_state_trans.open(dir + "/state_transition");
@@ -69,11 +71,11 @@ struct Quiver {
 		file_step.open(dir + "/step");
 		file_episode.open(dir + "/episode");
 		file_jpeg.open(dir + "/jpegmap");
-		jpeg_dir = dir;
 	}
 	
 	void close()
 	{
+		file_N.close();
 		file_state1.close();
 		file_state2.close();
 		file_state_trans.close();
@@ -95,30 +97,56 @@ struct Quiver {
 		const int* episode = (const int*) file_episode.data();
 		return episode[n];
 	}
-	
+
 	int episode_filter = -1;
 
 	std::string jpeg_of(int n) 
 	{
 		assert(n<N);
 		const char* jpeg = (const char*) file_jpeg.data();
-		return jpeg_dir + "/" + (jpeg + 16*n); // ".BipedalWalker-v2/z00020.jpg"
+		return dir + "/" + (jpeg + 16*n); // ".BipedalWalker-v2/z00020.jpg"
+	}
+
+	float val_from_axis(float* s, float xy_range1, int axis, int step, float step_range1, float V, float V_range1)
+	{
+		if (axis>=0 && axis<STATEDIM) return s[axis]*xy_range1;
+		if (axis==-1) return step*step_range1;
+		if (axis==-2) return V*V_range1;
+		return 0;
+	}
+	
+	void fill_color(float v, float* save_here)
+	{
+		QColor t;
+		v = std::max(-1.0f, v);
+		v = std::min(+1.0f, v);
+		t.setHslF(0.5-0.5*v, 1, 0.5);
+		qreal r,g,b;
+		t.getRgbF(&r, &g, &b);
+		save_here[0] = r;
+		save_here[1] = g;
+		save_here[2] = b;
 	}
 
 	void reprocess(
 		const shared_ptr<Quiver>& myself,
-		float xy_range,
-		float z_range,
-		bool tsne,
-		int axis1, int axis2, // if tsne false
+		float xy_range, float z_range,
+		int axis1,
+		int axis2,
+		int axis3,
+		int axis4,
 		bool mode_trans,
 		bool mode_policy
 		)
 	{
-		int new_N = file_Vonline1.size() / sizeof(float);
-		STATEDIM = file_state1.size() / file_Vonline1.size();
-		if (new_N!=N) printf("N=%i STATEDIM=%i\n", new_N, STATEDIM);
-		N = new_N;
+		int new_N = ((int*)file_N.data())[0];
+		if (new_N!=N) {
+			STATEDIM = file_state1.size() / file_Vonline1.size();
+			N = new_N;
+			printf("N=%i STATEDIM=%i\n", N, STATEDIM);
+			close();
+			open(dir);
+		}
 		if (N==0) return;
 		float* s1 = (float*) file_state1.data();
 		float* s2 = (float*) file_state2.data();
@@ -137,59 +165,26 @@ struct Quiver {
 		vcolor.resize(2*6*N);
 		float z_range1 = 1.0 / z_range;
 		float xy_range1 = 1.0 / xy_range;
-		if (tsne && (int)tsne_x1x2.size() != 4*N) {
-			tsne_start(myself);
-			assert((int)tsne_x1x2.size() == 4*N);
-		}
-		int part2 = N*6;
+		//int part2 = N*6;
 		int cursor = 0;
 		rendered2index.clear();
 		for (int c=0; c<N; c++) {
 			bool filtered = episode_filter != -1 && episode_of(c) != episode_filter;
 			if (filtered) continue;
 			rendered2index.push_back(c);
-			if (!tsne) {
-				vertex[6*cursor+0] = xy_range1*s1[STATEDIM*c+axis1];
-				vertex[6*cursor+1] = xy_range1*s1[STATEDIM*c+axis2];
-				vertex[6*cursor+3] = xy_range1*s2[STATEDIM*c+axis1];
-				vertex[6*cursor+4] = xy_range1*s2[STATEDIM*c+axis2];
-			} else {
-				vertex[6*cursor+0] = xy_range1*tsne_x1x2[2*c+0];
-				vertex[6*cursor+1] = xy_range1*tsne_x1x2[2*c+1];
-				vertex[6*cursor+3] = xy_range1*tsne_x1x2[2*c+0 + N];
-				vertex[6*cursor+4] = xy_range1*tsne_x1x2[2*c+1 + N];
-			}
-			vertex[6*cursor+2] = Vstable1[c] * z_range1;
-			vertex[6*cursor+5] = Vstable2[c] * z_range1;
 
-			vcolor[6*cursor+0] = 0.3f;
-			vcolor[6*cursor+1] = 0.3f;
-			vcolor[6*cursor+2] = 0.3f + step[c]*step1*0.7f;
-			vcolor[6*cursor+3] = 0;
-			vcolor[6*cursor+4] = 0.2f;
-			vcolor[6*cursor+5] = 0.5*step[c]*step1;
+			vertex[6*cursor+0] = val_from_axis( s1+STATEDIM*c, xy_range1, axis1, step[c], step1, Vstable1[c], z_range1 );
+			vertex[6*cursor+1] = val_from_axis( s1+STATEDIM*c, xy_range1, axis2, step[c], step1, Vstable1[c], z_range1 );
+			vertex[6*cursor+2] = val_from_axis( s1+STATEDIM*c, xy_range1, axis3, step[c], step1, Vstable1[c], z_range1 );
+			float color1       = val_from_axis( s1+STATEDIM*c, xy_range1, axis4, step[c], step1, Vstable1[c], z_range1 );
+			fill_color(color1, vcolor.data()+6*cursor);
 
-			vertex[6*cursor+0+part2] = vertex[6*cursor+0];
-			vertex[6*cursor+1+part2] = vertex[6*cursor+1];
-			vertex[6*cursor+2+part2] = Vonline1[c] * z_range1;
-			vertex[6*cursor+3+part2] = vertex[6*cursor+0];
-			vertex[6*cursor+4+part2] = vertex[6*cursor+1];
-			vertex[6*cursor+5+part2] = Vtarget[c] * z_range1;
-			if (Vtarget[c] > Vonline1[c]) {
-				vcolor[6*cursor+0+part2] = 0.0f;
-				vcolor[6*cursor+1+part2] = 1.0f;
-				vcolor[6*cursor+2+part2] = 0.0f;
-				vcolor[6*cursor+3+part2] = 0.0f;
-				vcolor[6*cursor+4+part2] = 1.0f;
-				vcolor[6*cursor+5+part2] = 0.0f;
-			} else {
-				vcolor[6*cursor+0+part2] = 1.0f;
-				vcolor[6*cursor+1+part2] = 0.0f;
-				vcolor[6*cursor+2+part2] = 0.0f;
-				vcolor[6*cursor+3+part2] = 1.0f;
-				vcolor[6*cursor+4+part2] = 0.0f;
-				vcolor[6*cursor+5+part2] = 0.0f;
-			}
+			vertex[6*cursor+3] = val_from_axis( s2+STATEDIM*c, xy_range1, axis1, step[c], step1, Vstable1[c], z_range1 );
+			vertex[6*cursor+4] = val_from_axis( s2+STATEDIM*c, xy_range1, axis2, step[c], step1, Vstable1[c], z_range1 );
+			vertex[6*cursor+5] = val_from_axis( s2+STATEDIM*c, xy_range1, axis3, step[c], step1, Vstable1[c], z_range1 );
+			float color2       = val_from_axis( s2+STATEDIM*c, xy_range1, axis4, step[c], step1, Vstable1[c], z_range1 );
+			fill_color(color2, vcolor.data()+6*cursor+3);
+			//if (Vtarget[c] > Vonline1[c]) 
 			cursor++;
 		}
 		render_N = cursor;
@@ -199,51 +194,6 @@ struct Quiver {
 	int render_N = 0;
 	bool visible_target = true;
 	
-	int tsne_iteration = 0;
-	std::vector<double> tsne_x1x2;
-	double tsne_error = 0;
-	bool tsne_shuddown = false;
-	bool tsne_done = false;
-	boost::thread* tsne_thread = 0;
-
-	void tsne_stop()
-	{
-		if (!tsne_thread) return;
-		tsne_shuddown = true;	
-		tsne_thread->join();
-		delete tsne_thread;
-	}
-
-	void tsne_start(const shared_ptr<Quiver>& myself)
-	{
-		tsne_stop();
-		tsne_x1x2.assign(4*N, 0.0);
-		tsne_done = false;
-		tsne_shuddown = false;
-		tsne_thread = new boost::thread( [myself] ()  { myself->tsne_thread_func(); } );
-	}
-
-	void tsne_thread_func()
-	{
-		std::vector<double> v;
-		std::vector<double> costs;
-		v.resize(2*N*STATEDIM);
-		float* s1 = (float*) file_state1.data();
-		float* s2 = (float*) file_state2.data();
-		for (int n=0; n<N*STATEDIM; n++) {
-			v[n             ] = s1[n];
-			v[n + N*STATEDIM] = s2[n];
-		}
-		costs.resize(2*N);
-		double perplexity = 30;
-		double theta = 0.5;
-		int rand_seed = 5;
-		srand((unsigned int) rand_seed);
-		TSNE tsne;
-		tsne.run(v.data(), 2*N, STATEDIM, tsne_x1x2.data(), 2, perplexity, theta, &tsne_iteration, &tsne_error, &tsne_shuddown);
-		tsne_done = true;
-	}
-
 	void draw(int highlight_n)
 	{
 		if (vertex.empty()) return;
@@ -258,8 +208,8 @@ struct Quiver {
 		glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
 
 		glDrawArrays(GL_LINES, 0,     2*render_N);
-		if (visible_target)
-			glDrawArrays(GL_LINES, part2, 2*render_N);
+		//if (visible_target)
+		//	glDrawArrays(GL_LINES, part2, 2*render_N);
 
 		glVertexPointer(3, GL_FLOAT, 6*4, vertex.data());
 		glColorPointer(3, GL_FLOAT, 6*4, vcolor.data());
@@ -499,10 +449,8 @@ public:
 	QTimer* timer;
 	QTimer* timer_long;
 
-	QRadioButton* radio_tsne;
-	QRadioButton* radio_axis;
-	QSpinBox* axis1;
-	QSpinBox* axis2;
+	QSpinBox* axis[4];
+
 	QRadioButton* mode_value;
 	QRadioButton* mode_transition_acc;
 	QRadioButton* mode_policy;
@@ -541,22 +489,17 @@ public:
 		row++;
 
 		{
-			QGroupBox* box = new QGroupBox(tr("XY"));
-			radio_tsne = new QRadioButton("t-SNE");
-			radio_axis = new QRadioButton("Axis");
-			radio_tsne->setChecked(ini->value("xy_tsne").toBool());
-			radio_axis->setChecked(ini->value("xy_axis").toBool());
-			grid->addWidget(box, row, 0, 1, 2);
 			QVBoxLayout* vbox = new QVBoxLayout;
-			box->setLayout(vbox);
-			vbox->addWidget(radio_tsne);
-			vbox->addWidget(radio_axis);
-			axis1 = new QSpinBox();
-			axis2 = new QSpinBox();
-			axis1->setValue(ini->value("xy_axis_n1").toInt());
-			axis2->setValue(ini->value("xy_axis_n2").toInt());
-			vbox->addWidget(axis1);
-			vbox->addWidget(axis2);
+			for (int c=0; c<4; c++) {
+				axis[c] = new QSpinBox();
+				axis[c]->setMinimum(-2);
+				vbox->addWidget(axis[c]);
+			}
+			axis[0]->setValue(ini->value("xy_axis_n1").toInt());
+			axis[1]->setValue(ini->value("xy_axis_n2").toInt());
+			axis[2]->setValue(ini->value("xy_axis_n3").toInt());
+			axis[3]->setValue(ini->value("xy_axis_n4").toInt());
+			grid->addLayout(vbox, row, 0, 1, 2);
 			row++;
 		}
 		
@@ -591,11 +534,13 @@ public:
 	{
 		ini->setValue("xy_range", xy_range->value());
 		ini->setValue("z_range", z_range->value());
-		ini->setValue("xy_tsne", radio_tsne->isChecked());
-		ini->setValue("xy_axis", radio_axis->isChecked());
 		ini->setValue("mode_value", mode_value->isChecked());
 		ini->setValue("mode_transition_acc", mode_transition_acc->isChecked());
 		ini->setValue("mode_policy", mode_policy->isChecked());
+		ini->setValue("xy_axis_n1", axis[0]->value());
+		ini->setValue("xy_axis_n2", axis[1]->value());
+		ini->setValue("xy_axis_n3", axis[2]->value());
+		ini->setValue("xy_axis_n4", axis[3]->value());
 	}
 
 	std::string dir;
@@ -608,7 +553,7 @@ public slots:
 				viz_widget->q,
 				xy_range->value(),
 				z_range->value(),
-				radio_tsne->isChecked(), axis1->value(), axis2->value(),
+				axis[0]->value(), axis[1]->value(), axis[2]->value(), axis[3]->value(),
 				mode_transition_acc->isChecked(), mode_policy->isChecked()
 				);
 		}
