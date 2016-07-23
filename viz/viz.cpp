@@ -48,8 +48,7 @@ struct Quiver {
 	mapped_file_source file_step;
 	mapped_file_source file_episode;
 	mapped_file_source file_jpeg;
-	
-	//mapped_file_source file_D;
+
 	std::vector<float> vertex; // x y z
 	std::vector<float> vcolor; // r g b
 	std::vector<int> rendered2index;
@@ -107,10 +106,10 @@ struct Quiver {
 		return dir + "/" + (jpeg + 16*n); // ".BipedalWalker-v2/z00020.jpg"
 	}
 
-	float val_from_axis(float* s, float xy_range1, int axis, int step, float step_range1, float V, float V_range1)
+	float val_from_axis(float* s, float xy_range1, int axis, int step, float step_f, float step_k, float V, float V_range1)
 	{
 		if (axis>=0 && axis<STATEDIM) return s[axis]*xy_range1;
-		if (axis==-1) return step*step_range1;
+		if (axis==-1) return -1 + (step-step_f)*step_k;
 		if (axis==-2) return V*V_range1;
 		return 0;
 	}
@@ -135,6 +134,7 @@ struct Quiver {
 		int axis2,
 		int axis3,
 		int axis4,
+		int timefilter_t1, int timefilter_t2,
 		bool mode_trans,
 		bool mode_policy
 		)
@@ -160,7 +160,15 @@ struct Quiver {
 		float* Vstable2 = (float*) file_Vstable2.data();
 		float* Vtarget  = (float*) file_Vtarget.data();
 		int* step       = (int*) file_step.data();
-		float step1 = 1.0f / *std::max_element(step, step+N);
+		float step_f;
+		float step_k;
+		if (timefilter_t1 >= 0) {
+			step_f = timefilter_t1;
+			step_k = 2.0f / std::max(timefilter_t2-timefilter_t1, 1);
+		} else {
+			step_f = 0;
+			step_k = 2.0f / *std::max_element(step, step+N);
+		}
 		vertex.resize(2*6*N);
 		vcolor.resize(2*6*N);
 		float z_range1 = 1.0 / z_range;
@@ -170,19 +178,20 @@ struct Quiver {
 		rendered2index.clear();
 		for (int c=0; c<N; c++) {
 			bool filtered = episode_filter != -1 && episode_of(c) != episode_filter;
+			if (timefilter_t1 >= 0) filtered |= (step[c] < timefilter_t1) || (step[c] > timefilter_t2);
 			if (filtered) continue;
 			rendered2index.push_back(c);
 
-			vertex[6*cursor+0] = val_from_axis( s1+STATEDIM*c, xy_range1, axis1, step[c], step1, Vstable1[c], z_range1 );
-			vertex[6*cursor+1] = val_from_axis( s1+STATEDIM*c, xy_range1, axis2, step[c], step1, Vstable1[c], z_range1 );
-			vertex[6*cursor+2] = val_from_axis( s1+STATEDIM*c, xy_range1, axis3, step[c], step1, Vstable1[c], z_range1 );
-			float color1       = val_from_axis( s1+STATEDIM*c, xy_range1, axis4, step[c], step1, Vstable1[c], z_range1 );
+			vertex[6*cursor+0] = val_from_axis( s1+STATEDIM*c, xy_range1, axis1, step[c], step_f, step_k, Vstable1[c], z_range1 );
+			vertex[6*cursor+1] = val_from_axis( s1+STATEDIM*c, xy_range1, axis2, step[c], step_f, step_k, Vstable1[c], z_range1 );
+			vertex[6*cursor+2] = val_from_axis( s1+STATEDIM*c, xy_range1, axis3, step[c], step_f, step_k, Vstable1[c], z_range1 );
+			float color1       = val_from_axis( s1+STATEDIM*c, xy_range1, axis4, step[c], step_f, step_k, Vstable1[c], z_range1 );
 			fill_color(color1, vcolor.data()+6*cursor);
 
-			vertex[6*cursor+3] = val_from_axis( s2+STATEDIM*c, xy_range1, axis1, step[c], step1, Vstable1[c], z_range1 );
-			vertex[6*cursor+4] = val_from_axis( s2+STATEDIM*c, xy_range1, axis2, step[c], step1, Vstable1[c], z_range1 );
-			vertex[6*cursor+5] = val_from_axis( s2+STATEDIM*c, xy_range1, axis3, step[c], step1, Vstable1[c], z_range1 );
-			float color2       = val_from_axis( s2+STATEDIM*c, xy_range1, axis4, step[c], step1, Vstable1[c], z_range1 );
+			vertex[6*cursor+3] = val_from_axis( s2+STATEDIM*c, xy_range1, axis1, step[c]+1, step_f, step_k, Vstable1[c], z_range1 );
+			vertex[6*cursor+4] = val_from_axis( s2+STATEDIM*c, xy_range1, axis2, step[c]+1, step_f, step_k, Vstable1[c], z_range1 );
+			vertex[6*cursor+5] = val_from_axis( s2+STATEDIM*c, xy_range1, axis3, step[c]+1, step_f, step_k, Vstable1[c], z_range1 );
+			float color2       = val_from_axis( s2+STATEDIM*c, xy_range1, axis4, step[c]+1, step_f, step_k, Vstable1[c], z_range1 );
 			fill_color(color2, vcolor.data()+6*cursor+3);
 			//if (Vtarget[c] > Vonline1[c]) 
 			cursor++;
@@ -454,6 +463,10 @@ public:
 	QRadioButton* mode_value;
 	QRadioButton* mode_transition_acc;
 	QRadioButton* mode_policy;
+	
+	QCheckBox* timefilter_checkbox;
+	QSpinBox* timefilter_t1;
+	QSpinBox* timefilter_t2;
 
 	VizWindow(const std::string& dir):
 		QWidget(0),
@@ -519,7 +532,20 @@ public:
 			vbox->addWidget(mode_policy);
 			row++;
 		}
-		
+
+		timefilter_checkbox = new QCheckBox("Time filter");
+		timefilter_t1 = new QSpinBox();
+		timefilter_t1->setMaximum(3000);
+		timefilter_t2 = new QSpinBox();
+		timefilter_t2->setMaximum(3000);
+		timefilter_checkbox->setChecked(ini->value("timefilter_on").toBool());
+		timefilter_t1->setValue(ini->value("timefilter_t1").toInt());
+		timefilter_t2->setValue(ini->value("timefilter_t2").toInt());
+		grid->addWidget(timefilter_checkbox, row, 0, 1, 2);
+		row++;
+		grid->addWidget(timefilter_t1, row, 0);
+		grid->addWidget(timefilter_t2, row, 1);
+		row++;
 
 		grid->setRowStretch(row, 1);
 		grid->setColumnStretch(2, 1);
@@ -541,6 +567,9 @@ public:
 		ini->setValue("xy_axis_n2", axis[1]->value());
 		ini->setValue("xy_axis_n3", axis[2]->value());
 		ini->setValue("xy_axis_n4", axis[3]->value());
+		ini->setValue("timefilter_on", timefilter_checkbox->isChecked());
+		ini->setValue("timefilter_t1", timefilter_t1->value());
+		ini->setValue("timefilter_t2", timefilter_t2->value());
 	}
 
 	std::string dir;
@@ -554,6 +583,7 @@ public slots:
 				xy_range->value(),
 				z_range->value(),
 				axis[0]->value(), axis[1]->value(), axis[2]->value(), axis[3]->value(),
+				timefilter_checkbox->isChecked() ? timefilter_t1->value() : -1, timefilter_t2->value(),
 				mode_transition_acc->isChecked(), mode_policy->isChecked()
 				);
 		}
