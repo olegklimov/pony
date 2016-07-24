@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, shutil
 os.environ['THEANO_FLAGS'] = "device=gpu"
 import theano, random, time, argparse
 theano.config.floatX = 'float32'
@@ -30,7 +30,11 @@ prefix = "v1"
 if args.savexp: prefix = args.savexp[0]
 print("Environment dir: {}".format(dir))
 print("Prefix: {}".format(prefix))
-assert os.path.exists(dir)
+
+dir_jpeg = dir + "/" + prefix
+try: shutil.rmtree(dir_jpeg)
+except: pass
+os.makedirs(dir_jpeg)
 
 if args.loadxp:
     for x in args.loadxp:
@@ -52,6 +56,8 @@ print("control-from-iteration: {}".format(args.control_from_iteration))
 print("learn={}".format(args.learn[0]))
 
 env = gym.make(env_type)
+if xp.STATE_DIM==0:
+    xp.init_from_env(env)
 
 if args.learn[0]=="WAR":
     import controller.algo_wires_advantage_random as war
@@ -59,6 +65,9 @@ if args.learn[0]=="WAR":
 elif args.learn[0]=="WTR":
     import controller.algo_wires_transition_random as wtr
     alg = wtr.WiresTransitionRandom()
+elif args.learn[0]=="DBW":
+    import demo_bipedal_walker
+    alg = demo_bipedal_walker.DemoBipedalWalker()
 else:
     print("unknown algorithm %s" % args.learn[0])
     sys.exit(0)
@@ -126,10 +135,10 @@ def rollout():
         s = sn
         a = alg.control(s, env.action_space)
         sn, r, done, info = env.step(a)
-        ts += 1
         if ts > env.spec.timestep_limit:
             done = True
             print("time limit hit")
+        ts += 1
         if human_wants_restart: 
             done = True
             r = -100.0
@@ -140,9 +149,9 @@ def rollout():
 
         if human_records_xp and (global_step_counter % 5 == 0 or done):
             rgb = env.render("rgb_array")
-            try: os.mkdir(dir + "/" + prefix)
+            try: os.mkdir(dir_jpeg)
             except: pass
-            jpeg_name = dir + "/" + prefix + "/{:05}.jpg".format(global_step_counter)
+            jpeg_name = dir_jpeg + "/{:05}.jpg".format(global_step_counter)
             scipy.misc.imsave(jpeg_name, rgb)
             pt.jpeg = jpeg_name
         track.append(pt)
