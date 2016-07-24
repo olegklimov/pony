@@ -68,14 +68,12 @@ elif args.learn[0]=="WTR":
 elif args.learn[0]=="DBW":
     import demo_bipedal_walker
     alg = demo_bipedal_walker.DemoBipedalWalker()
+elif args.learn[0]=="QP":
+    import controller.algo_qnet_policygrad as qp
+    alg = qp.QNetPolicygrad()
 else:
     print("unknown algorithm %s" % args.learn[0])
     sys.exit(0)
-
-from threading import Thread
-learn_thread = Thread(target=alg.learn_thread_func)
-learn_thread.daemon = True
-learn_thread.start()
 
 human_sets_pause = True
 alg.pause = True
@@ -126,12 +124,29 @@ env.viewer.window.on_key_release = key_release
 env.viewer.window.on_close = close
 global_step_counter = 0
 
+def test():
+    buf = xp.batch(alg.BATCH)
+    print "TEST START", len(buf)
+    alg._learn_iteration(buf, True)
+    print "TEST OVER"
+test()
+
+from threading import Thread
+learn_thread = Thread(target=alg.learn_thread_func)
+learn_thread.daemon = True
+learn_thread.start()
+
 def rollout():
     global human_wants_quit, human_wants_restart, human_sets_pause, sn, global_step_counter
     human_wants_restart = False
     track = []
     ts = 0
     while not human_wants_quit:
+        while human_sets_pause and not human_wants_quit and not human_wants_restart:
+            env.viewer.window.dispatch_events()
+            import time
+            time.sleep(0.2)
+
         s = sn
         a = alg.control(s, env.action_space)
         sn, r, done, info = env.step(a)
@@ -156,10 +171,6 @@ def rollout():
             pt.jpeg = jpeg_name
         track.append(pt)
 
-        while human_sets_pause and not human_wants_quit and not human_wants_restart:
-            env.viewer.window.dispatch_events()
-            import time
-            time.sleep(0.2)
         global_step_counter += 1
         if done: break
 
