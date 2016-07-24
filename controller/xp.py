@@ -73,18 +73,19 @@ def save(fn):
 class ExportViz:
     def reopen(self, dir, N, STATE_DIM, mode):
         self.N        = np.memmap(dir+"/N", mode=mode, shape=(1), dtype=np.int32)
-        self.state1   = np.memmap(dir+"/state1",  mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
-        self.state2   = np.memmap(dir+"/state2",  mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
-        self.state_trans  = np.memmap(dir+"/state_transition", mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
-        self.state_policy = np.memmap(dir+"/state_policy", mode=mode, shape=(N,STATE_DIM), dtype=np.float32)
-        self.Vstable1 = np.memmap(dir+"/Vstable1", mode=mode, shape=(N,), dtype=np.float32)
-        self.Vstable2 = np.memmap(dir+"/Vstable2", mode=mode, shape=(N,), dtype=np.float32)
-        self.Vonline1 = np.memmap(dir+"/Vonline1", mode=mode, shape=(N,), dtype=np.float32)
-        self.Vtarget  = np.memmap(dir+"/Vtarget", mode=mode, shape=(N,), dtype=np.float32)
-        self.Vpolicy  = np.memmap(dir+"/Vpolicy", mode=mode, shape=(N,), dtype=np.float32)
-        self.step     = np.memmap(dir+"/step",    mode=mode, shape=(N,), dtype=np.int32)
-        self.episode  = np.memmap(dir+"/episode", mode=mode, shape=(N,), dtype=np.int32)
-        self.jpeg     = np.memmap(dir+"/jpegmap", mode=mode, shape=(N*16,), dtype=np.int8)
+        more_N = N + 1000
+        self.state1   = np.memmap(dir+"/state1",   mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
+        self.state2   = np.memmap(dir+"/state2",   mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
+        self.state_trans  = np.memmap(dir+"/state_transition", mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
+        self.state_policy = np.memmap(dir+"/state_policy",     mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
+        self.Vstable1 = np.memmap(dir+"/Vstable1", mode=mode, shape=(more_N,), dtype=np.float32)
+        self.Vstable2 = np.memmap(dir+"/Vstable2", mode=mode, shape=(more_N,), dtype=np.float32)
+        self.Vonline1 = np.memmap(dir+"/Vonline1", mode=mode, shape=(more_N,), dtype=np.float32)
+        self.Vtarget  = np.memmap(dir+"/Vtarget",  mode=mode, shape=(more_N,), dtype=np.float32)
+        self.Vpolicy  = np.memmap(dir+"/Vpolicy",  mode=mode, shape=(more_N,), dtype=np.float32)
+        self.step     = np.memmap(dir+"/step",     mode=mode, shape=(more_N,), dtype=np.int32)
+        self.episode  = np.memmap(dir+"/episode",  mode=mode, shape=(more_N,), dtype=np.int32)
+        self.jpeg     = np.memmap(dir+"/jpegmap",  mode=mode, shape=(more_N*16,), dtype=np.int8)
 
 export_viz = None
 
@@ -131,7 +132,9 @@ def shuffle():
 
 def batch(BATCH_SIZE):
     with replay_mutex:
-        half_replay = len(replay_shuffled) // 2
+        N = len(replay_shuffled)
+        if N==0: return []
+        half_replay = N // 2
         buf = []
         while len(buf) < BATCH_SIZE:
             x = replay_shuffled.pop(0)

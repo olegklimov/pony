@@ -8,7 +8,7 @@ from threading import Lock
 
 class WiresTransitionRandom(algo.Algorithm):
     def __init__(self):
-        algo.Algorithm.__init__(self, BATCH=100)
+        algo.Algorithm.__init__(self, BATCH=200)
         self.wires = wires.ValueWIRES()
         self.trans = transition_model.Transition()
 
@@ -33,7 +33,7 @@ class WiresTransitionRandom(algo.Algorithm):
                 for i in range(RAND):
                     input[i, xp.STATE_DIM:] = action_space.sample()
             else:
-                k = 0.1 / c
+                k = 0.5 / c
                 for i in range(RAND):
                     input[i, xp.STATE_DIM:] = best_action + k*action_space.sample()
             v1sn = self.trans.predict(input)

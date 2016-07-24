@@ -25,7 +25,7 @@ class WiresAdvantageRandom(algo.Algorithm):
         self.wires.V_stable.model.load_weights(fn + "_wires.h5")
         self.wires.V_online.model.load_weights(fn + "_wires.h5")
 
-    def control(self, s, action_space):
+    def _control(self, s, action_space):
         v1  = [action_space.sample() for x in range(50)]
         v1e = self.adv.estimate(s, v1)
         v1i = np.argmax(v1e)

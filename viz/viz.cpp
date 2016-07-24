@@ -143,6 +143,7 @@ struct Quiver {
 		if (new_N!=N) {
 			STATEDIM = file_state1.size() / file_Vonline1.size();
 			N = new_N;
+			render_N = 0;
 			printf("N=%i STATEDIM=%i\n", N, STATEDIM);
 			close();
 			open(dir);
@@ -150,16 +151,17 @@ struct Quiver {
 		if (N==0) return;
 		float* s1 = (float*) file_state1.data();
 		float* s2 = (float*) file_state2.data();
-		if (mode_trans) {
-			s2 = (float*) file_state_trans.data();
-		} else if (mode_policy) {
-			s2 = (float*) file_state_policy.data();
-		}
 		float* Vonline1 = (float*) file_Vonline1.data();
 		float* Vstable1 = (float*) file_Vstable1.data();
 		float* Vstable2 = (float*) file_Vstable2.data();
 		float* Vtarget  = (float*) file_Vtarget.data();
 		int* step       = (int*) file_step.data();
+		if (mode_trans) {
+			s2 = (float*) file_state_trans.data();
+		} else if (mode_policy) {
+			//s2 = (float*) file_state_policy.data();
+			Vstable2 = (float*) file_Vpolicy.data();
+		}
 		float step_f;
 		float step_k;
 		if (timefilter_t1 >= 0) {
@@ -188,10 +190,10 @@ struct Quiver {
 			float color1       = val_from_axis( s1+STATEDIM*c, xy_range1, axis4, step[c], step_f, step_k, Vstable1[c], z_range1 );
 			fill_color(color1, vcolor.data()+6*cursor);
 
-			vertex[6*cursor+3] = val_from_axis( s2+STATEDIM*c, xy_range1, axis1, step[c]+1, step_f, step_k, Vstable1[c], z_range1 );
-			vertex[6*cursor+4] = val_from_axis( s2+STATEDIM*c, xy_range1, axis2, step[c]+1, step_f, step_k, Vstable1[c], z_range1 );
-			vertex[6*cursor+5] = val_from_axis( s2+STATEDIM*c, xy_range1, axis3, step[c]+1, step_f, step_k, Vstable1[c], z_range1 );
-			float color2       = val_from_axis( s2+STATEDIM*c, xy_range1, axis4, step[c]+1, step_f, step_k, Vstable1[c], z_range1 );
+			vertex[6*cursor+3] = val_from_axis( s2+STATEDIM*c, xy_range1, axis1, step[c]+1, step_f, step_k, Vstable2[c], z_range1 );
+			vertex[6*cursor+4] = val_from_axis( s2+STATEDIM*c, xy_range1, axis2, step[c]+1, step_f, step_k, Vstable2[c], z_range1 );
+			vertex[6*cursor+5] = val_from_axis( s2+STATEDIM*c, xy_range1, axis3, step[c]+1, step_f, step_k, Vstable2[c], z_range1 );
+			float color2       = val_from_axis( s2+STATEDIM*c, xy_range1, axis4, step[c]+1, step_f, step_k, Vstable2[c], z_range1 );
 			fill_color(color2, vcolor.data()+6*cursor+3);
 			//if (Vtarget[c] > Vonline1[c]) 
 			cursor++;

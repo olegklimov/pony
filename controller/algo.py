@@ -32,5 +32,5 @@ class Algorithm:
             xp.epoch = 0.0
             xp.epoch_sample_counter = 0
 
-    def control(self, s):
-        raise NotImplementedError()
+    def control(self, s, action_space):
+        return self._control(s, action_space)
