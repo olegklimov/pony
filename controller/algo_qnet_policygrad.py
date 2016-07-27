@@ -6,9 +6,9 @@ import numpy as np
 import keras
 import keras.models
 from keras import backend as K
-from keras.regularizers import l2
-from keras.layers.core import Dense
-from keras.layers import merge, Input
+from keras.regularizers import l2, activity_l1l2, activity_l1, activity_l2
+from keras.layers.core import Dense, Lambda
+from keras.layers import Merge, merge, Input
 from keras.models import Model
 from keras.engine import Layer
 from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
@@ -30,6 +30,18 @@ class Bell(Layer):
 
 CRASH_THRESHOLD = -50   # pin value function if crashed, ignore value regression
 
+def clamp_minus_one_plus_one(x):
+    return K.minimum( +1, K.maximum(x, -1) )  # as opposed to min/max, minimum/maximum is element-wise operations
+
+def parabola_of_x(x):
+    return -K.sum(K.square(x), axis=-1, keepdims=True)
+
+def parabola_of_x_shape(input_shape):
+    shape = list(input_shape)
+    assert len(shape) == 2  # only valid for 2D tensors
+    shape[-1] = 1
+    return tuple(shape)
+
 class QNetPolicygrad(algo.Algorithm):
     def __init__(self, GAMMA=0.995, TAU=0.01, BATCH=100):
         algo.Algorithm.__init__(self, BATCH)
@@ -37,28 +49,33 @@ class QNetPolicygrad(algo.Algorithm):
         self.TAU = TAU
         self.stable_mutex = Lock()
 
-        #self.transition = transition_model.Transition()
+        nrm = Lambda(parabola_of_x, output_shape=parabola_of_x_shape)
+        rst = Lambda(clamp_minus_one_plus_one)
 
         stable_inp_s = Input( shape=(xp.STATE_DIM,) )  # batch (None, ...) added automatically
         stable_inp_a = Input( shape=(xp.ACTION_DIM,) )
-        stable_inp = merge( [stable_inp_s, stable_inp_a], mode='concat' )
+        stable_inp = merge( [stable_inp_s, rst(stable_inp_a)], mode='concat' )
         stable_d1 = Dense(320, activation='relu', W_regularizer=l2(0.01))
-        stable_d2 = Dense(240, activation='relu', W_regularizer=l2(0.01))
-        stable_d3 = Dense(120, W_regularizer=l2(0.01))
-        stable_bell = Bell()
+        stable_d2 = Dense(320, activation='relu', W_regularizer=l2(0.01))
+        stable_d3 = Dense(320, activation='relu', W_regularizer=l2(0.01))
         stable_qout = Dense(1)
 
         online_inp_s = Input( shape=(xp.STATE_DIM,) )
         online_inp_a = Input( shape=(xp.ACTION_DIM,) )
-        online_inp = merge( [online_inp_s, online_inp_a], mode='concat' )
+        online_inp = merge( [online_inp_s, rst(online_inp_a)], mode='concat' )
         online_d1 = Dense(320, activation='relu', W_regularizer=l2(0.01))
-        online_d2 = Dense(240, activation='relu', W_regularizer=l2(0.01))
-        online_d3 = Dense(120, W_regularizer=l2(0.01))
-        online_bell = Bell()
+        online_d2 = Dense(320, activation='relu', W_regularizer=l2(0.01))
+        online_d3 = Dense(320, activation='relu', W_regularizer=l2(0.01))
         online_qout = Dense(1)
 
-        stable_out_tensor = stable_qout(stable_bell( stable_d3(stable_d2(stable_d1(stable_inp))) ))
-        online_out_tensor = online_qout(online_bell( online_d3(online_d2(online_d1(online_inp))) ))
+        stable_out_tensor = merge( [
+            stable_qout( stable_d3(stable_d2(stable_d1(stable_inp))) ),
+            nrm(stable_inp)
+            ], mode='sum' )
+        online_out_tensor = merge( [
+            online_qout( online_d3(online_d2(online_d1(online_inp))) ),
+            nrm(online_inp)
+            ], mode='sum' )
 
         self.Q_online = Model( input=[online_inp_s,online_inp_a], output=online_out_tensor )
         self.Q_stable = Model( input=[stable_inp_s,stable_inp_a], output=stable_out_tensor )
@@ -66,66 +83,100 @@ class QNetPolicygrad(algo.Algorithm):
         self.Q_online.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
         self.Q_stable.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
 
-        policy_d1 = Dense(320, activation='relu', W_regularizer=l2(0.01))
-        policy_d2 = Dense(240, activation='relu', W_regularizer=l2(0.01))
-        policy_d3 = Dense(120, W_regularizer=l2(0.01))
-        policy_bell = Bell()
-        policy_out = Dense(xp.ACTION_DIM)
+        stable_d1.trainable = False
+        stable_d2.trainable = False
+        stable_d3.trainable = False
+        stable_qout.trainable = False
 
-        policy_out_tensor = policy_out(policy_bell( policy_d3(policy_d2(policy_d1(stable_inp_s))) ))
-        policy_value_of_s = self.Q_stable( [stable_inp_s,policy_out_tensor] )
-
-        self.policy_action = Model( input=[stable_inp_s], output=policy_out_tensor )
-        self.policy_value  = Model( input=[stable_inp_s], output=policy_value_of_s )
-
+        # activity_regularizer=activity_l2(0.001))
         def only_up(y_true, y_pred):
             return K.mean( -y_pred, axis=-1 )
-        self.policy_action.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
-        self.policy_value.compile( loss=only_up, optimizer=Adam(lr=0.0005, beta_2=0.9999))
+        def policy_net(inp_s):
+            d1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            d2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            d3 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            out = Dense(xp.ACTION_DIM)
+            out_tensor = out( d3(d2(d1(inp_s))) )
+            value_of_s = self.Q_stable( [inp_s,out_tensor] )
+            action = Model( input=[inp_s], output=out_tensor )
+            action.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))  # really optimal values here
+            value  = Model( input=[inp_s], output=value_of_s )
+            value.compile(loss=only_up, optimizer=Adam(lr=0.0005, beta_2=0.9999))
+            return action, value
+        tmp_s = Input( shape=(xp.STATE_DIM,) )
+        self.stable_policy_action, self.stable_policy_value = policy_net(tmp_s)
+        tmp_o = Input( shape=(xp.STATE_DIM,) )
+        self.online_policy_action, self.online_policy_value = policy_net(tmp_o) # yes stable
+
+        self.countdown = 0
+        self.demo_policy_tolearn = 2000
+
+    def _learn_demo_policy(self, buf, dry_run):
+        batch_s = np.zeros( (self.BATCH, xp.STATE_DIM) )
+        batch_a = np.zeros( (self.BATCH, xp.ACTION_DIM) )
+        for i,x in enumerate(buf):
+            batch_s[i] = x.s
+            batch_a[i] = x.a
+        loss = self.stable_policy_action.train_on_batch( batch_s, batch_a )
+        print loss
 
     def _learn_iteration(self, buf, dry_run):
+        if self.demo_policy_tolearn > 0 and not dry_run:
+            self._learn_demo_policy(buf, dry_run)
+            self.demo_policy_tolearn -= 1
+            return
         #self.transition.learn_iteration(buf, dry_run)
 
         BATCH = len(buf)
         assert(self.BATCH==BATCH)
-        TUNNEL  = 3*BATCH
 
-        batch_s = np.zeros( (BATCH+TUNNEL, xp.STATE_DIM) )
-        batch_a = np.zeros( (BATCH+TUNNEL, xp.ACTION_DIM) )
-        batch_t = np.zeros( (BATCH+TUNNEL, 1) )
+        batch_s = np.zeros( (BATCH, xp.STATE_DIM) )
+        batch_a = np.zeros( (BATCH, xp.ACTION_DIM) )
+        batch_t = np.zeros( (BATCH, 1) )
 
         for i,x in enumerate(buf):
             batch_s[i] = x.sn
         with self.stable_mutex:
-            nv = self.policy_value.predict(batch_s[:BATCH])
+            nv = self.stable_policy_value.predict(batch_s)
+            #nv2_a = self.stable_policy_action.predict(batch_s)
+            #nv2_v = self.Q_stable.predict( [batch_s, nv2_a] )
         for i,x in enumerate(buf):
             x.nv = nv[i][0]
-
-        # WIRES
-        N = len(xp.replay)
-        v = 0
-        episode = 0
-        for i in range(N-1,-1,-1):
-            x = xp.replay[i]
-            if x.terminal:
-                v = 0
-                episode += 1
-            x.episode = episode
-            v = v*self.GAMMA + x.r
-            x.wires_v = v
-            if not (x.terminal and x.r < CRASH_THRESHOLD):    # not crash 
-                x.target_v = max(v, x.nv*self.GAMMA + x.r)
-                v = max(x.target_v, x.v)                      # x.v is stable v
-            else:
-                x.target_v = v                                # -100 on crash
+            #print "action", nv2_a[i]
+            #print "value1", nv[i][0]
+            #print "value2", nv2_v[i][0]
 
         for i,x in enumerate(buf):
             batch_s[i] = x.s
             batch_a[i] = x.a
         with self.stable_mutex:
-            stable_v = self.Q_stable.predict( [batch_s[:BATCH], batch_a[:BATCH]] )
+            stable_v = self.Q_stable.predict( [batch_s, batch_a] )
         for i,x in enumerate(buf):
             x.v = stable_v[i][0]
+
+        # WIRES
+        if self.countdown==0:
+            N = len(xp.replay)
+            self.N = N
+            v = 0
+            episode = 0
+            for i in range(N-1,-1,-1):
+                x = xp.replay[i]
+                if x.terminal:
+                    v = 0
+                    episode += 1
+                x.episode = episode
+                v = v*self.GAMMA + x.r
+                x.wires_v = v
+                if not (x.terminal and x.r < CRASH_THRESHOLD):    # not crash
+                    #x.target_v = x.nv*self.GAMMA + x.r
+                    x.target_v = max(v, x.nv*self.GAMMA + x.r)
+                    v = max(x.target_v, x.v)                      # x.v is stable v
+                else:
+                    x.target_v = v                                # -100 on crash
+            self.countdown = 20
+        else:
+            self.countdown -= 1
 
         # Viz
         with xp.replay_mutex:
@@ -141,61 +192,22 @@ class QNetPolicygrad(algo.Algorithm):
                 xp.export_viz.episode[x.viz_n] = x.episode
                 # TODO
                 xp.export_viz.state_policy[x.viz_n] = x.s
-                xp.export_viz.Vpolicy[x.viz_n] = 0
+                xp.export_viz.Vpolicy[x.viz_n] = x.target_v
 
-        # Generate tunnel cloud
-        MEANINGFUL_AXIS = 14
-        TUNNEL_RADIUS_STATE = 0.1
-        TUNNEL_RADIUS_ACTION = 0.1
-        cursor = BATCH 
-        while cursor < BATCH+TUNNEL:
-            for i,x in enumerate(buf):
-                if x.v < 0: continue
-                tmp = np.random.uniform( low=-TUNNEL_RADIUS_STATE, high=+TUNNEL_RADIUS_STATE, size=(MEANINGFUL_AXIS,) )
-                tmp.resize( (xp.STATE_DIM,) )
-                batch_s[cursor] = x.s + tmp
-                #tmp = np.random.uniform( low=-TUNNEL_RADIUS_ACTION, high=+TUNNEL_RADIUS_ACTION, size=(xp.ACTION_DIM,) )
-                #batch_a[cursor] = x.a + tmp
-                tmp = np.random.uniform( low=-1.1, high=+1.1, size=(xp.ACTION_DIM,) )
-                batch_a[cursor] = tmp
-                viz_n = cursor-BATCH + N
-                xp.export_viz.step[viz_n]    = x.step
-                xp.export_viz.episode[viz_n] = x.episode
-                cursor += 1
-                if not (cursor < BATCH+TUNNEL): break
-            if cursor == BATCH: # no v>0, leave zeros
-                break
-
-        online_cloud = self.Q_online.predict( [batch_s[BATCH:], batch_a[BATCH:]] )
-        cursor = BATCH
-        with xp.replay_mutex:
-            while cursor < BATCH+TUNNEL:
-                t = online_cloud[cursor-BATCH] * self.GAMMA
-                batch_t[cursor,0] = t
-                viz_n = cursor-BATCH + N
-                xp.export_viz.state1[viz_n] = batch_s[cursor]
-                xp.export_viz.state2[viz_n] = batch_s[cursor]
-                xp.export_viz.state_trans[viz_n] = batch_s[cursor]
-                xp.export_viz.state_policy[viz_n] = batch_s[cursor]
-                xp.export_viz.Vstable1[viz_n] = online_cloud[cursor-BATCH]
-                xp.export_viz.Vstable2[viz_n] = t
-                xp.export_viz.Vonline1[viz_n] = 0
-                xp.export_viz.Vtarget[viz_n]  = 0
-                xp.export_viz.Vpolicy[viz_n] = t
-                cursor += 1
-            xp.export_viz.N[0] = N + TUNNEL
+        xp.export_viz.N[0] = self.N
 
         if dry_run:
             loss = self.Q_online.test_on_batch( [batch_s, batch_a], batch_t )
             #print("WIRES (test) %0.5f" % loss)
         else:
-            loss = self.Q_online.train_on_batch( [batch_s, batch_a], batch_t )
-            #print("WIRES %0.5f" % loss)
-            test1 = self.Q_online.test_on_batch( [batch_s, batch_a], batch_t )
-            loss = self.policy_value.train_on_batch(batch_s, batch_t)
-            test2 = self.Q_online.test_on_batch( [batch_s, batch_a], batch_t )
-            #print("POLICY %0.5f" % loss)
-            self._slowly_transfer_weights_to_stable_network()
+            wires_loss = self.Q_online.train_on_batch( [batch_s, batch_a], batch_t )
+            test1 = self.Q_stable.test_on_batch( [batch_s, batch_a], batch_t )
+            policy_loss = self.online_policy_value.train_on_batch(batch_s, batch_t)
+            test2 = self.Q_stable.test_on_batch( [batch_s, batch_a], batch_t )
+            print("test1", test1, "test2", test2)
+            print("WIRES %0.2f POLICY %0.5f" % (wires_loss, policy_loss))
+            self._slowly_transfer_weights_to_stable_network(self.Q_stable, self.Q_online, self.TAU)
+            #self._slowly_transfer_weights_to_stable_network(self.stable_policy_value, self.online_policy_value, 0.001)
 
     def _save(self, fn):
         self.transition.model.save_weights(fn + "_transition.h5", overwrite=True)
@@ -203,16 +215,21 @@ class QNetPolicygrad(algo.Algorithm):
     def _load(self, fn):
         self.transition.model.load_weights(fn + "_transition.h5")
 
-    def _control(self, s, action_space):
-        v1  = [action_space.sample() for x in range(50)]
-        return v1[0]
+    def _control(self, s, action_space, flag):
+        a = self.online_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
+        import gym.envs.box2d.bipedal_walker as w
+        ah  = w.heuristic(self, s)
+        print "a", a
+        print "h", ah
+        if flag: return a
+        return ah
 
-    def _slowly_transfer_weights_to_stable_network(self):
-        ws_online = self.Q_online.get_weights()
+    def _slowly_transfer_weights_to_stable_network(self, stable, online, TAU):
+        ws_online = online.get_weights()
         with self.stable_mutex:
-            ws_stable = self.Q_stable.get_weights()
+            ws_stable = stable.get_weights()
         for arr_online, arr_stable in zip(ws_online, ws_stable):
-            arr_stable *= (1-self.TAU)
-            arr_stable += self.TAU*arr_online
+            arr_stable *= (1-TAU)
+            arr_stable += TAU*arr_online
         with self.stable_mutex:
-            self.Q_stable.set_weights(ws_stable)
+            stable.set_weights(ws_stable)
