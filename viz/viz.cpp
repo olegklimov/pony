@@ -113,7 +113,22 @@ struct Quiver {
 		if (axis==-2) return V*V_range1;
 		return 0;
 	}
-	
+
+	void print_around(int ind)
+	{
+		int i = ind;
+		float* Vstable1 = (float*) file_Vstable1.data();
+		float* Vstable2 = (float*) file_Vstable2.data();
+		const int* episode = (const int*) file_episode.data();
+		float* Vtarget  = (float*) file_Vtarget.data();
+		const char* jpeg = (const char*) file_jpeg.data();
+		int this_episode = episode[i];
+		while (this_episode==episode[i]) {
+			printf("P[%06i] x.v=%0.5f t=%0.5f x.sn=%0.5f jpeg=%s\n", i, Vstable1[i], Vtarget[i], Vstable2[i], jpeg + 16*i);
+			++i;			
+		}
+	}
+
 	void fill_color(float v, float* save_here)
 	{
 		QColor t;
@@ -419,6 +434,8 @@ public:
 			double traveled = fabs(mouse_init_x - mev->x()) + fabs(mouse_init_y - mev->y());
 			if (traveled < 5 && q) {
 				q->episode_filter = q->episode_of(closest_indx);
+				if (closest_indx!=-1)
+					q->print_around(closest_indx);
 			}
 		}
 	}
