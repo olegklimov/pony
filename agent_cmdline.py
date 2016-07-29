@@ -75,19 +75,22 @@ else:
     print("unknown algorithm %s" % args.learn[0])
     sys.exit(0)
 
-human_sets_pause = True
+human_sets_pause = 1
 alg.pause = True
 human_wants_quit = False
 human_wants_restart = False
-human_records_xp = False
+human_records_xp = True
+human_single_run = 0
 new_xp = []
 
 import pyglet
 from pyglet.window import key as kk
 
 def key_press(key, mod):
-    global human_wants_restart, human_sets_pause, human_records_xp
-    if key==32: human_sets_pause = not human_sets_pause
+    global human_wants_restart, human_sets_pause, human_records_xp, human_single_run
+    if key==32:
+        human_sets_pause = (human_sets_pause+1) % 2
+        print("pause %i (%s)" % (human_sets_pause, ["GO!","STOP","AUTO"][human_sets_pause]))
     elif key==0xff0d: human_wants_restart = True
     elif key==kk.F1:
         alg.pause = not alg.pause
@@ -98,6 +101,10 @@ def key_press(key, mod):
         alg.load(dir + "/_weights")
         with xp.replay_mutex:
             xp.export_viz_open(dir, "r+")
+    elif key==kk.F5:
+        human_single_run += 1
+        human_sets_pause = 0
+        print("SINGLE RUN x%i" % human_single_run)
     elif key==ord("j"):
         human_records_xp = not human_records_xp
         print("record=%i prefix=%s" % (human_records_xp, prefix))
@@ -118,6 +125,7 @@ def close():
     human_wants_quit = True
 
 sn = env.reset()
+alg.reset()
 env.render()
 env.viewer.window.on_key_press = key_press
 env.viewer.window.on_key_release = key_release
@@ -126,9 +134,9 @@ global_step_counter = 0
 
 def test():
     buf = xp.batch(alg.BATCH)
-    print "TEST START", len(buf)
+    print("TEST START", len(buf))
     alg._learn_iteration(buf, True)
-    print "TEST OVER"
+    print("TEST OVER")
 test()
 
 from threading import Thread
@@ -137,15 +145,17 @@ learn_thread.daemon = True
 learn_thread.start()
 
 def rollout():
-    global human_wants_quit, human_wants_restart, human_sets_pause, sn, global_step_counter
+    global human_wants_quit, human_wants_restart, human_sets_pause, human_single_run, sn, global_step_counter
     human_wants_restart = False
     track = []
     ts = 0
-    while not human_wants_quit:
+    while 1:
         while human_sets_pause and not human_wants_quit and not human_wants_restart:
             env.viewer.window.dispatch_events()
             import time
             time.sleep(0.2)
+            if human_single_run > 0: break
+        if human_wants_quit: break
 
         s = sn
         a = alg.control(s, env.action_space)
@@ -154,7 +164,7 @@ def rollout():
             done = True
             print("time limit hit")
         ts += 1
-        if human_wants_restart: 
+        if human_wants_restart:
             done = True
             r = -100.0
             print("human -100")
@@ -181,6 +191,12 @@ def rollout():
             xp.shuffle()
             xp.export_viz_open(dir, "r+")
     sn = env.reset()
+    alg.reset()
+    if human_single_run > 0:
+        human_single_run -= 1
+        print("SINGLE RUN %i LEFT" % human_single_run)
+        if human_single_run==0:
+            human_sets_pause = 1
 
 while not human_wants_quit:
     rollout()

@@ -26,8 +26,8 @@ class XPoint:
         self.r = r
         self.sn = np.asarray(sn)
         assert self.sn.shape==(STATE_DIM,)
-        self.y_ddqn = 0.0
-        self.y_maxq = 0.0
+        self.wires_v = 0.0
+        self.episode = 1
         self.step = int(step)
         self.sampled_counter = 0
         self.important = True

@@ -174,7 +174,7 @@ struct Quiver {
 		if (mode_trans) {
 			s2 = (float*) file_state_trans.data();
 		} else if (mode_policy) {
-			//s2 = (float*) file_state_policy.data();
+			s2 = (float*) file_state_policy.data();
 			Vstable2 = (float*) file_Vpolicy.data();
 		}
 		float step_f;
