@@ -52,39 +52,28 @@ class QNetPolicygrad(algo.Algorithm):
         nrm = Lambda(parabola_of_x, output_shape=parabola_of_x_shape)
         clamp = Lambda(clamp_minus_one_plus_one)
 
-        stable_inp_s = Input( shape=(xp.STATE_DIM,) )  # batch (None, ...) added automatically
-        stable_inp_a = Input( shape=(xp.ACTION_DIM,) )
-        stable_inp = merge( [stable_inp_s, stable_inp_a], mode='concat' )
-        stable_d1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-        stable_d2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-        stable_d3 = Dense(320, W_regularizer=l2(0.001))
-        stable_bell = Bell()
-        stable_qout = Dense(1, bias=False)
+        def qmodel():
+            inp_s = Input( shape=(xp.STATE_DIM,) )  # batch (None, ...) added automatically
+            inp_a = Input( shape=(xp.ACTION_DIM,) )
+            inp = merge( [inp_s, inp_a], mode='concat' )
 
-        online_inp_s = Input( shape=(xp.STATE_DIM,) )
-        online_inp_a = Input( shape=(xp.ACTION_DIM,) )
-        online_inp = merge( [online_inp_s, online_inp_a], mode='concat' )
-        online_d1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-        online_d2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-        online_d3 = Dense(320, W_regularizer=l2(0.001))
-        online_bell = Bell()
-        online_qout = Dense(1, bias=False)
+            d1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            d2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            d3 = Dense(320, W_regularizer=l2(0.001))
+            bell = Bell()
+            qout = Dense(1, bias=False)
 
-        stable_out_tensor = merge( [
-            stable_qout(stable_bell( stable_d3(stable_d2(stable_d1(stable_inp))) )),
-            nrm(stable_inp)
-            ], mode='sum' )
-        online_out_tensor = merge( [
-            online_qout(online_bell( online_d3(online_d2(online_d1(online_inp))) )),
-            nrm(online_inp)
-            ], mode='sum' )
+            out_tensor = merge( [
+                qout(bell( d3(d2(d1(inp))) )),
+                nrm(inp)
+                ], mode='sum' )
 
-        self.Q_online = Model( input=[online_inp_s,online_inp_a], output=online_out_tensor )
-        self.Q_stable = Model( input=[stable_inp_s,stable_inp_a], output=stable_out_tensor )
+            Qmod = Model( input=[inp_s,inp_a], output=out_tensor )
+            Qmod.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
+            return d1, d2, d3, qout, Qmod
 
-        self.Q_online.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
-        self.Q_stable.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
-
+        online_d1, online_d2, online_d3, online_qout, self.Q_online = qmodel()
+        stable_d1, stable_d2, stable_d3, stable_qout, self.Q_stable = qmodel()
         stable_d1.trainable = False
         stable_d2.trainable = False
         stable_d3.trainable = False
