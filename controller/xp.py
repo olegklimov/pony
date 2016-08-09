@@ -72,6 +72,8 @@ def save(fn):
 
 class ExportViz:
     def reopen(self, dir, N, STATE_DIM, mode):
+        assert STATE_DIM>0
+        assert ACTION_DIM>0
         self.N        = np.memmap(dir+"/N", mode=mode, shape=(1), dtype=np.int32)
         more_N = N + 1000
         self.state1   = np.memmap(dir+"/state1",   mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)

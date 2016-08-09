@@ -28,7 +28,7 @@ class Bell(Layer):
         base_config = super(Bell, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
-CRASH_THRESHOLD = -50   # pin value function if crashed, ignore value regression
+CRASH_OR_WIN_THRESHOLD = 50   # pin value function if last state is win or crash, ignore bootstrap
 
 def clamp_minus_one_plus_one(x):
     return K.minimum( +1, K.maximum(x, -1) )  # as opposed to min/max, minimum/maximum is element-wise operations
@@ -103,7 +103,7 @@ class QNetPolicygrad(algo.Algorithm):
             action = Model( input=[inp_s], output=out_tensor )
             action.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))  # really optimal values here
             value  = Model( input=[inp_s], output=value_of_s )
-            value.compile(loss=only_up, optimizer=Adam(lr=0.0005, beta_2=0.9999))
+            value.compile(loss=only_up, optimizer=Adam(lr=0.00005, beta_2=0.9999))
             return action, value
         input_s = Input( shape=(xp.STATE_DIM,) )
         self.stable_policy_action, self.stable_policy_value = policy_net(input_s)
@@ -113,8 +113,9 @@ class QNetPolicygrad(algo.Algorithm):
 
         self.countdown = 0
         self.demo_policy_tolearn = 2000
+        self.use_random_policy = True
 
-    def _learn_demo_policy(self, buf, dry_run):
+    def _learn_demo_policy_supervised(self, buf, dry_run):
         batch_s = np.zeros( (self.BATCH, xp.STATE_DIM) )
         batch_a = np.zeros( (self.BATCH, xp.ACTION_DIM) )
         for i,x in enumerate(buf):
@@ -130,12 +131,22 @@ class QNetPolicygrad(algo.Algorithm):
                 print(loss)
 
     def _learn_iteration(self, buf, dry_run):
-        if self.demo_policy_tolearn > 0 and not dry_run:
-            self.demo_policy_tolearn -= 1
-            self._learn_demo_policy(buf, dry_run)
+        #if self.demo_policy_tolearn > 0 and not dry_run:
+            #self.demo_policy_tolearn -= 1
+            #self._learn_demo_policy_supervised(buf, dry_run)
+        #    return
+
+        if self.use_random_policy:
+            N = len(xp.replay)
+            self.N = N
+            if N > 2000:
+                self.use_random_policy = False
+                print("have %i random samples, start learning" % N)
             return
 
         BATCH = len(buf)
+        #self.use_random_policy = N BATCH < self.BATCH  # few experience points
+        #if self.use_random_policy: return
         assert(self.BATCH==BATCH)
 
         batch_s = np.zeros( (BATCH, xp.STATE_DIM) )
@@ -190,7 +201,7 @@ class QNetPolicygrad(algo.Algorithm):
         # Viz
         with xp.replay_mutex:
             for i,x in enumerate(buf):
-                if not (x.terminal and x.r < CRASH_THRESHOLD):    # not crash
+                if not (x.terminal and np.abs(x.r) > CRASH_OR_WIN_THRESHOLD):    # not crash
                     #x.target_v = x.nv*self.GAMMA + x.r
                     x.target_v = max(x.wires_v, x.nv*self.GAMMA + x.r)
                     #v = max(x.target_v, x.v)                     # x.v is stable v
@@ -222,9 +233,9 @@ class QNetPolicygrad(algo.Algorithm):
             policy_loss = self.online_policy_value.train_on_batch(batch_s, batch_t)
             #test2 = self.Q_stable.test_on_batch( [batch_s, batch_a], batch_t )
             #print("test1", test1, "test2", test2)
-            print("WIRES %0.4f POLICY %0.4f TRANS %0.4f" % (wires_loss, policy_loss, trans_loss))
+            #print("WIRES %0.4f POLICY %0.4f TRANS %0.4f" % (wires_loss, policy_loss, trans_loss))
             self._slowly_transfer_weights_to_stable_network(self.Q_stable, self.Q_online, self.TAU)
-            #self._slowly_transfer_weights_to_stable_network(self.stable_policy_value, self.online_policy_value, 0.0001)
+            self._slowly_transfer_weights_to_stable_network(self.stable_policy_value, self.online_policy_value, 0.0001)
 
     def _save(self, fn):
         self.Q_stable.save_weights(fn + "_qnet.h5", overwrite=True)
@@ -240,20 +251,21 @@ class QNetPolicygrad(algo.Algorithm):
 
     def _reset(self):
         self.heuristic_timeout = np.random.randint(low=0, high=100)
-        print("alg reset")
 
     def _control(self, s, action_space):
+        if self.use_random_policy:
+            return action_space.sample()
         with self.stable_mutex:
             a = self.online_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
-        import gym.envs.box2d.bipedal_walker as w
-        if self.heuristic_timeout > 0:
-            self.heuristic_timeout -= 1
-            if self.heuristic_timeout==0:
-                print("heuristic over")
-            ah  = w.heuristic(self, s)
-            return ah
-        else:
-            print(a)
+        #import gym.envs.box2d.bipedal_walker as w
+        #if self.heuristic_timeout > 0:
+        #    self.heuristic_timeout -= 1
+        #    if self.heuristic_timeout==0:
+        #        print("heuristic over")
+        #    ah  = w.heuristic(self, s)
+        #    return ah
+        #else:
+        #print(a)
         return a
 
     def _slowly_transfer_weights_to_stable_network(self, stable, online, TAU):
@@ -265,3 +277,6 @@ class QNetPolicygrad(algo.Algorithm):
             arr_stable += TAU*arr_online
         with self.stable_mutex:
             stable.set_weights(ws_stable)
+
+    def useful_to_think_more(self):
+        return not self.use_random_policy

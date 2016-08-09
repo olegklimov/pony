@@ -37,3 +37,7 @@ class Algorithm:
 
     def control(self, s, action_space):
         return self._control(s, action_space)
+
+    def useful_to_think_more(self):
+        return False
+        

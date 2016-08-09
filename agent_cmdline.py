@@ -46,6 +46,10 @@ if args.loadxp:
     print("Total {} samples".format(len(xp.replay)))
 print
 
+env = gym.make(env_type)
+if xp.STATE_DIM==0:
+    xp.init_from_env(env)
+
 try: xp.export_viz_open(dir, "r+")
 except: xp.export_viz_open(dir, "w+")
 
@@ -54,10 +58,6 @@ if args.viz_only:
 
 print("control-from-iteration: {}".format(args.control_from_iteration))
 print("learn={}".format(args.learn[0]))
-
-env = gym.make(env_type)
-if xp.STATE_DIM==0:
-    xp.init_from_env(env)
 
 if args.learn[0]=="WAR":
     import controller.algo_wires_advantage_random as war
@@ -68,6 +68,9 @@ elif args.learn[0]=="WTR":
 elif args.learn[0]=="DBW":
     import demo_bipedal_walker
     alg = demo_bipedal_walker.DemoBipedalWalker()
+elif args.learn[0]=="DLL":
+    import demo_lunar_lander
+    alg = demo_lunar_lander.DemoLunarLander()
 elif args.learn[0]=="QP":
     import controller.algo_qnet_policygrad as qp
     alg = qp.QNetPolicygrad()
@@ -132,13 +135,6 @@ env.viewer.window.on_key_release = key_release
 env.viewer.window.on_close = close
 global_step_counter = 0
 
-def test():
-    buf = xp.batch(alg.BATCH)
-    print("TEST START", len(buf))
-    alg._learn_iteration(buf, True)
-    print("TEST OVER")
-test()
-
 from threading import Thread
 learn_thread = Thread(target=alg.learn_thread_func)
 learn_thread.daemon = True
@@ -149,10 +145,10 @@ def rollout():
     human_wants_restart = False
     track = []
     ts = 0
+    r = 0
     while 1:
         while human_sets_pause and not human_wants_quit and not human_wants_restart:
             env.viewer.window.dispatch_events()
-            import time
             time.sleep(0.2)
             if human_single_run > 0: break
         if human_wants_quit: break
@@ -184,12 +180,15 @@ def rollout():
         global_step_counter += 1
         if done: break
 
+    print("last reward %0.2f on step %i" % (r, ts))
     if track and human_records_xp:
         new_xp.extend(track)
         with xp.replay_mutex:
             xp.replay.extend(track)
             xp.shuffle()
             xp.export_viz_open(dir, "r+")
+        if alg.useful_to_think_more():
+            time.sleep(20.0)
     sn = env.reset()
     alg.reset()
     if human_single_run > 0:
@@ -198,7 +197,10 @@ def rollout():
         if human_single_run==0:
             human_sets_pause = 1
 
+episode_n = 0
 while not human_wants_quit:
+    episode_n += 1
+    print("episode %i" % episode_n)
     rollout()
 
 alg.quit = True
