@@ -15,9 +15,12 @@ class Algorithm:
                 import time
                 time.sleep(0.1)
             with self.save_load_mutex:
-                buf = xp.batch(self.BATCH)
-                self._learn_iteration(buf, self.dry_run)
+                self.run_single_learn_iteration()
                 if xp.epoch > 2: self.dry_run = False
+
+    def run_single_learn_iteration(self):
+        buf = xp.batch(self.BATCH)
+        self._learn_iteration(buf, self.dry_run)
 
     def save(self, fn):
         with self.save_load_mutex:
@@ -40,4 +43,6 @@ class Algorithm:
 
     def useful_to_think_more(self):
         return False
-        
+
+    def advantage_visualize(self, s, a, action_space):
+        pass

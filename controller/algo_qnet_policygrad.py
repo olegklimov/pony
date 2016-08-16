@@ -12,34 +12,34 @@ from keras.layers import Merge, merge, Input
 from keras.models import Model
 from keras.engine import Layer
 from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
+from keras.constraints import nonneg
 from threading import Lock
 
-class Bell(Layer):
-    def __init__(self, **kwargs):
-        self.supports_masking = True
-        super(Bell, self).__init__(**kwargs)
-
-    def call(self, x, mask=None):
-        return K.exp(-x*x)
-        #return -K.abs(x)
-
-    def get_config(self):
-        config = {}
-        base_config = super(Bell, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
+#class Bell(Layer):
+#    def __init__(self, **kwargs):
+#        self.supports_masking = True
+#        super(Bell, self).__init__(**kwargs)
+#    def call(self, x, mask=None):
+#        return K.exp(-x*x)
+#        #return -K.abs(x)
+#    def get_config(self):
+#        config = {}
+#        base_config = super(Bell, self).get_config()
+#        return dict(list(base_config.items()) + list(config.items()))
 
 CRASH_OR_WIN_THRESHOLD = 50   # pin value function if last state is win or crash, ignore bootstrap
 
 def clamp_minus_one_plus_one(x):
     return K.minimum( +1, K.maximum(x, -1) )  # as opposed to min/max, minimum/maximum is element-wise operations
 
-def parabola_of_x(x):
-    return  (-0.01)*K.sum(K.square(x), axis=-1, keepdims=True)
+def gaussian_of_x(x):
+    return K.sum( K.exp(-x*x), axis=-1, keepdims=True )
+    #return K.sum(K.square(x), axis=-1, keepdims=True)
 
-def parabola_of_x_shape(input_shape):
+def gaussian_of_x_shape(input_shape):
     shape = list(input_shape)
     assert len(shape) == 2  # only valid for 2D tensors
-    shape[-1] = 1
+    shape[-1] = 320
     return tuple(shape)
 
 class QNetPolicygrad(algo.Algorithm):
@@ -48,36 +48,49 @@ class QNetPolicygrad(algo.Algorithm):
         self.GAMMA = GAMMA
         self.TAU = TAU
         self.stable_mutex = Lock()
+        self.online_mutex = Lock()
 
-        nrm = Lambda(parabola_of_x, output_shape=parabola_of_x_shape)
         clamp = Lambda(clamp_minus_one_plus_one)
 
         def qmodel():
             inp_s = Input( shape=(xp.STATE_DIM,) )  # batch (None, ...) added automatically
             inp_a = Input( shape=(xp.ACTION_DIM,) )
-            inp = merge( [inp_s, inp_a], mode='concat' )
 
-            d1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            d2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            d3 = Dense(320, W_regularizer=l2(0.001))
-            bell = Bell()
-            qout = Dense(1, bias=False)
+            v1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            v2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            v3 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            v_out = Dense(1, W_regularizer=l2(0.001))
+
+            a1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            a2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            a3 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            #a_bell = Bell()
+            a_out  = Dense(1, bias=False, W_constraint=nonneg())
+
+            gaussian = Lambda(gaussian_of_x, output_shape=gaussian_of_x_shape)
+
+            parabolized_action = merge( [
+                a3(a2(a1( merge([inp_s, inp_a], mode='concat') ))),
+                gaussian(inp_a)
+                ], mode='mul')
 
             out_tensor = merge( [
-                qout(bell( d3(d2(d1(inp))) )),
-                nrm(inp)
+                a_out( parabolized_action ),
+                v_out( v3(v2(v1(inp_s))) )
                 ], mode='sum' )
+
+            #if self.mode in ['sum', 'mul', 'ave', 'max']:  'concat'
+            #elif self.mode in ['dot', 'cos']:
 
             Qmod = Model( input=[inp_s,inp_a], output=out_tensor )
             Qmod.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
-            return d1, d2, d3, qout, Qmod
+            return [v1,v2,v3,v_out, a1,a2,a3,a_out], Qmod
 
-        online_d1, online_d2, online_d3, online_qout, self.Q_online = qmodel()
-        stable_d1, stable_d2, stable_d3, stable_qout, self.Q_stable = qmodel()
-        stable_d1.trainable = False
-        stable_d2.trainable = False
-        stable_d3.trainable = False
-        stable_qout.trainable = False
+        online_trainable, self.Q_online = qmodel()
+        stable_trainable, self.Q_stable = qmodel()
+
+        for layer in stable_trainable:
+            layer.trainable = False  # model already compiled (that's where this flag used), this assignment avoids learning by policy below
 
         # activity_regularizer=activity_l2(0.001))
         def only_up(y_true, y_pred):
@@ -111,7 +124,7 @@ class QNetPolicygrad(algo.Algorithm):
             batch_s[i] = x.s
             batch_a[i] = x.a
         with self.stable_mutex:
-            loss = self.online_policy_action.train_on_batch( batch_s, batch_a )
+            loss = self.online_policy_action.train_on_batch( batch_s, batch_a )  # uses stable Q
             if self.demo_policy_tolearn==0:
                 w = self.online_policy_action.get_weights()
                 self.stable_policy_action.set_weights(w)
@@ -214,16 +227,20 @@ class QNetPolicygrad(algo.Algorithm):
 
         trans_loss = self.trans.learn_iteration(buf, dry_run)
         if dry_run:
-            loss = self.Q_online.test_on_batch( [batch_s, batch_a], batch_t )
+            with self.online_mutex:
+                loss = self.Q_online.test_on_batch( [batch_s, batch_a], batch_t )
             #print("WIRES (test) %0.5f" % loss)
         else:
-            wires_loss = self.Q_online.train_on_batch( [batch_s, batch_a], batch_t )
+            with self.online_mutex:
+                wires_loss = self.Q_online.train_on_batch( [batch_s, batch_a], batch_t )
             #test1 = self.Q_stable.test_on_batch( [batch_s, batch_a], batch_t )
-            policy_loss = self.online_policy_value.train_on_batch(batch_s, batch_t)
+            with self.stable_mutex:
+                policy_loss = self.online_policy_value.train_on_batch(batch_s, batch_t)
             #test2 = self.Q_stable.test_on_batch( [batch_s, batch_a], batch_t )
             #print("test1", test1, "test2", test2)
             #print("WIRES %0.4f POLICY %0.4f TRANS %0.4f" % (wires_loss, policy_loss, trans_loss))
-            self._slowly_transfer_weights_to_stable_network(self.Q_stable, self.Q_online, self.TAU)
+            with self.online_mutex:
+                self._slowly_transfer_weights_to_stable_network(self.Q_stable, self.Q_online, self.TAU)
             self._slowly_transfer_weights_to_stable_network(self.stable_policy_value, self.online_policy_value, 0.0001)
 
     def _save(self, fn):
@@ -256,6 +273,25 @@ class QNetPolicygrad(algo.Algorithm):
         #else:
         #print(a)
         return a
+
+    def advantage_visualize(self, s, a, action_space):
+        PIXELS = xp.ACTION_PIXELS
+        batch_s = np.zeros( (PIXELS*xp.ACTION_DIM, xp.STATE_DIM) )
+        batch_a = np.zeros( (PIXELS*xp.ACTION_DIM, xp.ACTION_DIM) )
+        for i in range(xp.ACTION_DIM):
+            for p in range(PIXELS):
+                batch_s[i*PIXELS + p] = s
+                batch_a[i*PIXELS + p] = a
+                batch_a[i*PIXELS + p, i] = action_space.low[i] + p / (action_space.high[i]-action_space.low[i])
+        with self.stable_mutex:
+            with self.online_mutex:
+                stable_v = self.Q_stable.predict( [batch_s, batch_a] )
+                online_v = self.Q_online.predict( [batch_s, batch_a] )
+        stable_v = np.zeros( (PIXELS*xp.ACTION_DIM,1) )
+        online_v = np.zeros( (PIXELS*xp.ACTION_DIM,1) )
+        xp.export_viz.action[:] = a
+        xp.export_viz.agraph_online[:] = online_v
+        xp.export_viz.agraph_stable[:] = stable_v
 
     def _slowly_transfer_weights_to_stable_network(self, stable, online, TAU):
         ws_online = online.get_weights()

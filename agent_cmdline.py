@@ -124,7 +124,7 @@ def key_press(key, mod):
 def key_release(key, mod):
     pass
 def close():
-    global human_wants_quit, human_wants_restart, human_sets_pause
+    global human_wants_quit
     human_wants_quit = True
 
 sn = env.reset()
@@ -134,6 +134,10 @@ env.viewer.window.on_key_press = key_press
 env.viewer.window.on_key_release = key_release
 env.viewer.window.on_close = close
 global_step_counter = 0
+
+# before starting a thread, check if everything works in main thread.
+alg.run_single_learn_iteration()
+alg.advantage_visualize(sn, env.action_space.sample(), env.action_space)
 
 from threading import Thread
 learn_thread = Thread(target=alg.learn_thread_func)
@@ -147,14 +151,19 @@ def rollout():
     ts = 0
     r = 0
     while 1:
+        s = sn
+
         while human_sets_pause and not human_wants_quit and not human_wants_restart:
             env.viewer.window.dispatch_events()
             time.sleep(0.2)
+            a = alg.control(s, env.action_space)
+            alg.advantage_visualize(s, a, env.action_space)
             if human_single_run > 0: break
         if human_wants_quit: break
 
-        s = sn
         a = alg.control(s, env.action_space)
+        alg.advantage_visualize(s, a, env.action_space)
+
         sn, r, done, info = env.step(a)
         if ts > env.spec.timestep_limit:
             done = True
@@ -175,6 +184,7 @@ def rollout():
             jpeg_name = dir_jpeg + "/{:05}.jpg".format(global_step_counter)
             scipy.misc.imsave(jpeg_name, rgb)
             pt.jpeg = jpeg_name
+
         track.append(pt)
 
         global_step_counter += 1
@@ -187,8 +197,12 @@ def rollout():
             xp.replay.extend(track)
             xp.shuffle()
             xp.export_viz_open(dir, "r+")
-        if alg.useful_to_think_more():
-            time.sleep(20.0)
+        for i in range(200):
+            env.viewer.window.dispatch_events()
+            if not alg.useful_to_think_more(): break
+            if human_wants_quit: break
+            if human_wants_restart: break
+            time.sleep(0.1)
     sn = env.reset()
     alg.reset()
     if human_single_run > 0:

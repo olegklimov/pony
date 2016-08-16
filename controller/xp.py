@@ -2,6 +2,7 @@ import numpy as np
 
 STATE_DIM   = 0  # Dimensionality of s, determined from environment
 ACTION_DIM  = 0  # Dimensionality of a, actions represented as single-hot vector, i.e. [0,0,0,0,1,0,0] for 4-th action
+ACTION_PIXELS = 100
 
 from threading import Lock
 replay_mutex = Lock()
@@ -15,6 +16,7 @@ def init_from_env(env):
     global STATE_DIM, ACTION_DIM
     STATE_DIM = env.observation_space.shape[0]
     ACTION_DIM = env.action_space.shape[0]
+    print "a"
 
 class XPoint:
     'experience point'
@@ -88,6 +90,9 @@ class ExportViz:
         self.step     = np.memmap(dir+"/step",     mode=mode, shape=(more_N,), dtype=np.int32)
         self.episode  = np.memmap(dir+"/episode",  mode=mode, shape=(more_N,), dtype=np.int32)
         self.jpeg     = np.memmap(dir+"/jpegmap",  mode=mode, shape=(more_N*16,), dtype=np.int8)
+        self.action   = np.memmap(dir+"/action",   mode=mode, shape=(ACTION_DIM,), dtype=np.float32)
+        self.agraph_online = np.memmap(dir+"/agraph_online", mode=mode, shape=(ACTION_PIXELS*ACTION_DIM,1), dtype=np.float32)
+        self.agraph_stable = np.memmap(dir+"/agraph_stable", mode=mode, shape=(ACTION_PIXELS*ACTION_DIM,1), dtype=np.float32)
 
 export_viz = None
 
