@@ -18,7 +18,7 @@
 using boost::shared_ptr;
 using boost::iostreams::mapped_file_source;
 
-float line_vertex[] = {
+static float line_vertex[] = {
 +1,+1,0, -1,+1,0,
 -1,+1,0, -1,-1,0,
 -1,-1,0, +1,-1,0,
@@ -48,6 +48,9 @@ struct Quiver {
 	mapped_file_source file_step;
 	mapped_file_source file_episode;
 	mapped_file_source file_jpeg;
+	mapped_file_source file_action;
+	mapped_file_source file_agraph_online;
+	mapped_file_source file_agraph_stable;
 
 	std::vector<float> vertex; // x y z
 	std::vector<float> vcolor; // r g b
@@ -70,8 +73,11 @@ struct Quiver {
 		file_step.open(dir + "/step");
 		file_episode.open(dir + "/episode");
 		file_jpeg.open(dir + "/jpegmap");
+		file_action.open(dir + "/action");
+		file_agraph_online.open(dir + "/agraph_online");
+		file_agraph_stable.open(dir + "/agraph_stable");
 	}
-	
+
 	void close()
 	{
 		file_N.close();
@@ -87,6 +93,9 @@ struct Quiver {
 		file_step.close();
 		file_episode.close();
 		file_jpeg.close();
+		file_action.close();
+		file_agraph_online.close();
+		file_agraph_stable.close();
 	}
 
 	int episode_of(int n)
@@ -114,7 +123,7 @@ struct Quiver {
 		return 0;
 	}
 
-	void print_around(int ind)
+	void print_about(int ind)
 	{
 		int i = ind;
 		float* Vstable1 = (float*) file_Vstable1.data();
@@ -250,6 +259,99 @@ struct Quiver {
 		glDisableClientState(GL_VERTEX_ARRAY);
 		glDisableClientState(GL_COLOR_ARRAY);
 	}
+
+	void actions_reprocess(float w, float h, float z_range1)
+	{
+		int new_action_dim = file_action.size() / sizeof(float);
+		if (new_action_dim!=ACTION_DIM) {
+			ACTION_DIM = new_action_dim;
+			ACTION_PIXELS = file_agraph_online.size() / file_action.size();
+			printf("ACTION_DIM=%i, PIXELS=%i\n", ACTION_DIM, ACTION_PIXELS);
+		}
+
+		int SPACING = 10;
+		float window_h = std::min(h / ACTION_DIM, 300.0f);
+		w -= SPACING;
+		float window_w = window_h * 4/3;
+
+		agraph_border.resize(6*3*ACTION_DIM);
+		agraph.resize(ACTION_DIM);
+		agraph_vertex.resize(3*ACTION_DIM*ACTION_PIXELS);
+		agraph_color.resize(3*ACTION_DIM*ACTION_PIXELS);
+		float* agraph_online = (float*)file_agraph_online.data();
+		float* agraph_stable = (float*)file_agraph_stable.data();
+		for (int c=0; c<ACTION_DIM; ++c) {
+			float y = (window_h+SPACING)*c + SPACING;
+			Graph& g = agraph[c];
+			g.dy = y + window_h/2;
+			g.dx = w - window_w/2;
+			g.kx = window_w/2;
+			g.ky = -window_h/2;
+
+			agraph_border[6*3*c +  0 + 0] = -1.0*g.kx + g.dx;
+			agraph_border[6*3*c +  0 + 1] = +1.0*g.ky + g.dy;
+			agraph_border[6*3*c +  0 + 2] = -0.1;
+			agraph_border[6*3*c +  3 + 0] = -1.0*g.kx + g.dx;
+			agraph_border[6*3*c +  3 + 1] = -1.0*g.ky + g.dy;
+			agraph_border[6*3*c +  3 + 2] = -0.1;
+
+			agraph_border[6*3*c +  6 + 0] = -1.0*g.kx + g.dx;
+			agraph_border[6*3*c +  6 + 1] =  0.0*g.ky + g.dy;
+			agraph_border[6*3*c +  6 + 2] = -0.1;
+			agraph_border[6*3*c +  9 + 0] = +1.0*g.kx + g.dx;
+			agraph_border[6*3*c +  9 + 1] =  0.0*g.ky + g.dy;
+			agraph_border[6*3*c +  9 + 2] = -0.1;
+
+			agraph_border[6*3*c + 12 + 0] = +1.0*g.kx + g.dx;
+			agraph_border[6*3*c + 12 + 1] = -1.0*g.ky + g.dy;
+			agraph_border[6*3*c + 12 + 2] = -0.1;
+			agraph_border[6*3*c + 15 + 0] = +1.0*g.kx + g.dx;
+			agraph_border[6*3*c + 15 + 1] = +1.0*g.ky + g.dy;
+			agraph_border[6*3*c + 15 + 2] = -0.1;
+
+			for (int p=0; p<ACTION_PIXELS; ++p) {
+				float x = -1 + 2.0*p/ACTION_PIXELS;
+				float y = z_range1*agraph_online[ACTION_PIXELS*c + p];
+				if (y> 1.0) y =  1.0;
+				if (y<-1.0) y = -1.0;
+				agraph_vertex[ACTION_PIXELS*3*c + 3*p + 0] = x*g.kx + g.dx;
+				agraph_vertex[ACTION_PIXELS*3*c + 3*p + 1] = y*g.ky + g.dy;
+				agraph_vertex[ACTION_PIXELS*3*c + 3*p + 2] = -0.1;
+				fill_color(y, agraph_color.data() + ACTION_PIXELS*3*c + 3*p);
+			}
+		}
+	}
+
+	void actions_draw()
+	{
+		if (ACTION_DIM==0) return;
+		//float* action = (float*)file_action.data();
+
+		glEnableClientState(GL_VERTEX_ARRAY);
+		glColor3f(0.3f, 0.3f, 0.3f);
+		glVertexPointer(3, GL_FLOAT, 0, agraph_border.data());
+		glDrawArrays(GL_LINES, 0, 6*ACTION_DIM);
+
+		glEnableClientState(GL_COLOR_ARRAY);
+		glVertexPointer(3, GL_FLOAT, 0, agraph_vertex.data());
+		glColorPointer(3, GL_FLOAT, 0, agraph_color.data());
+		for (int c=0; c<ACTION_DIM; ++c)
+			glDrawArrays(GL_LINE_STRIP, c*ACTION_PIXELS, ACTION_PIXELS);
+		glDisableClientState(GL_COLOR_ARRAY);
+		glDisableClientState(GL_VERTEX_ARRAY);
+	}
+
+	struct Graph {
+		float dx, dy, kx, ky;
+	};
+
+	int ACTION_DIM = 0;
+	int ACTION_PIXELS = 0;
+
+	std::vector<Graph> agraph;
+	std::vector<float> agraph_border; // x y z
+	std::vector<float> agraph_vertex; // x y z
+	std::vector<float> agraph_color;  // r g b
 };
 
 class Viz: public QGLWidget {
@@ -362,6 +464,13 @@ public:
 					test.bits() );
 			}
 		}
+
+		if (q) {
+			glLoadIdentity();
+			glScalef(1.0/side*r*2, -1.0/side*r*2, 1.0);
+			glTranslatef(-rect().width()/2, -rect().height()/2, 0);
+			q->actions_draw();
+		}
 	}
 	
 	std::string jpeg_reported;
@@ -382,7 +491,6 @@ public:
 	float yrot = -40;
 	float zrot = 0;
 	float wheel = 1;
-	float z_range = 1.0;
 
 	void keyPressEvent(QKeyEvent* kev)
 	{
@@ -435,7 +543,7 @@ public:
 			if (traveled < 5 && q) {
 				q->episode_filter = q->episode_of(closest_indx);
 				if (closest_indx!=-1)
-					q->print_around(closest_indx);
+					q->print_about(closest_indx);
 			}
 		}
 	}
@@ -604,6 +712,10 @@ public slots:
 				axis[0]->value(), axis[1]->value(), axis[2]->value(), axis[3]->value(),
 				timefilter_checkbox->isChecked() ? timefilter_t1->value() : -1, timefilter_t2->value(),
 				mode_transition_acc->isChecked(), mode_policy->isChecked()
+				);
+			viz_widget->q->actions_reprocess(
+				viz_widget->rect().width(), viz_widget->rect().height(),
+				1.0/z_range->value()
 				);
 		}
 		viz_widget->xrot += 0.01;
