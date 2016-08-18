@@ -279,10 +279,11 @@ class QNetPolicygrad(algo.Algorithm):
         batch_s = np.zeros( (PIXELS*xp.ACTION_DIM, xp.STATE_DIM) )
         batch_a = np.zeros( (PIXELS*xp.ACTION_DIM, xp.ACTION_DIM) )
         for i in range(xp.ACTION_DIM):
+            pk = (action_space.high[i]-action_space.low[i]) / PIXELS
             for p in range(PIXELS):
                 batch_s[i*PIXELS + p] = s
                 batch_a[i*PIXELS + p] = a
-                batch_a[i*PIXELS + p, i] = action_space.low[i] + p / (action_space.high[i]-action_space.low[i])
+                batch_a[i*PIXELS + p, i] = action_space.low[i] + p*pk
         with self.stable_mutex:
             stable_v = self.Q_stable.predict( [batch_s, batch_a] )
         with self.online_mutex:
