@@ -275,14 +275,17 @@ struct Quiver {
 		float window_w = window_h * 4/3;
 
 		agraph_border.resize(6*3*ACTION_DIM);
-		agraph.resize(ACTION_DIM);
-		agraph_vertex.resize(3*ACTION_DIM*ACTION_PIXELS);
+		//agraph.resize(ACTION_DIM);
+		agraph_online.resize(3*ACTION_DIM*ACTION_PIXELS);
+		agraph_stable.resize(3*ACTION_DIM*ACTION_PIXELS);
 		agraph_color.resize(3*ACTION_DIM*ACTION_PIXELS);
-		float* agraph_online = (float*)file_agraph_online.data();
-		float* agraph_stable = (float*)file_agraph_stable.data();
+		agraph_action.resize(3*2*ACTION_DIM);
+		float* action = (float*)file_action.data();
+		float* agraph_online_p = (float*)file_agraph_online.data();
+		float* agraph_stable_p = (float*)file_agraph_stable.data();
 		for (int c=0; c<ACTION_DIM; ++c) {
 			float y = (window_h+SPACING)*c + SPACING;
-			Graph& g = agraph[c];
+			Graph g; // = agraph[c];
 			g.dy = y + window_h/2;
 			g.dx = w - window_w/2;
 			g.kx = window_w/2;
@@ -311,34 +314,56 @@ struct Quiver {
 
 			for (int p=0; p<ACTION_PIXELS; ++p) {
 				float x = -1 + 2.0*p/ACTION_PIXELS;
-				float y = z_range1*agraph_online[ACTION_PIXELS*c + p];
-				if (y> 1.0) y =  1.0;
-				if (y<-1.0) y = -1.0;
-				agraph_vertex[ACTION_PIXELS*3*c + 3*p + 0] = x*g.kx + g.dx;
-				agraph_vertex[ACTION_PIXELS*3*c + 3*p + 1] = y*g.ky + g.dy;
-				agraph_vertex[ACTION_PIXELS*3*c + 3*p + 2] = -0.1;
-				fill_color(y, agraph_color.data() + ACTION_PIXELS*3*c + 3*p);
+				float ys = z_range1*agraph_stable_p[ACTION_PIXELS*c + p];
+				if (ys> 1.0) ys =  1.0;
+				if (ys<-1.0) ys = -1.0;
+				float yo = z_range1*agraph_online_p[ACTION_PIXELS*c + p];
+				if (yo> 1.0) yo =  1.0;
+				if (yo<-1.0) yo = -1.0;
+				agraph_online[ACTION_PIXELS*3*c + 3*p + 0] =  x*g.kx + g.dx;
+				agraph_online[ACTION_PIXELS*3*c + 3*p + 1] = yo*g.ky + g.dy;
+				agraph_online[ACTION_PIXELS*3*c + 3*p + 2] = -0.1;
+				agraph_stable[ACTION_PIXELS*3*c + 3*p + 0] =  x*g.kx + g.dx;
+				agraph_stable[ACTION_PIXELS*3*c + 3*p + 1] = ys*g.ky + g.dy;
+				agraph_stable[ACTION_PIXELS*3*c + 3*p + 2] = -0.1;
+				fill_color(ys, agraph_color.data() + ACTION_PIXELS*3*c + 3*p);
 			}
+
+			float x = action[c];
+			agraph_action[2*3*c + 0 + 0] = x*g.kx + g.dx;
+			agraph_action[2*3*c + 0 + 1] = +1.0*g.ky + g.dy;
+			agraph_action[2*3*c + 0 + 2] = -0.1;
+			agraph_action[2*3*c + 3 + 0] = x*g.kx + g.dx;
+			agraph_action[2*3*c + 3 + 1] = -1.0*g.ky + g.dy;
+			agraph_action[2*3*c + 3 + 2] = -0.1;
 		}
 	}
 
 	void actions_draw()
 	{
 		if (ACTION_DIM==0) return;
-		//float* action = (float*)file_action.data();
 
+		glDisable(GL_DEPTH_TEST);
 		glEnableClientState(GL_VERTEX_ARRAY);
 		glColor3f(0.3f, 0.3f, 0.3f);
 		glVertexPointer(3, GL_FLOAT, 0, agraph_border.data());
 		glDrawArrays(GL_LINES, 0, 6*ACTION_DIM);
 
 		glEnableClientState(GL_COLOR_ARRAY);
-		glVertexPointer(3, GL_FLOAT, 0, agraph_vertex.data());
+		glVertexPointer(3, GL_FLOAT, 0, agraph_online.data());
 		glColorPointer(3, GL_FLOAT, 0, agraph_color.data());
 		for (int c=0; c<ACTION_DIM; ++c)
 			glDrawArrays(GL_LINE_STRIP, c*ACTION_PIXELS, ACTION_PIXELS);
 		glDisableClientState(GL_COLOR_ARRAY);
+		glColor3f(0.5f, 0.5f, 0.5f);
+		glVertexPointer(3, GL_FLOAT, 0, agraph_stable.data());
+		for (int c=0; c<ACTION_DIM; ++c)
+			glDrawArrays(GL_LINE_STRIP, c*ACTION_PIXELS, ACTION_PIXELS);
+		glColor3f(1.0f, 1.0f, 1.0f);
+		glVertexPointer(3, GL_FLOAT, 0, agraph_action.data());
+		glDrawArrays(GL_LINES, 0, 2*ACTION_DIM);
 		glDisableClientState(GL_VERTEX_ARRAY);
+		glEnable(GL_DEPTH_TEST);
 	}
 
 	struct Graph {
@@ -348,10 +373,12 @@ struct Quiver {
 	int ACTION_DIM = 0;
 	int ACTION_PIXELS = 0;
 
-	std::vector<Graph> agraph;
+	//std::vector<Graph> agraph;
 	std::vector<float> agraph_border; // x y z
-	std::vector<float> agraph_vertex; // x y z
-	std::vector<float> agraph_color;  // r g b
+	std::vector<float> agraph_online; // x y z
+	std::vector<float> agraph_color;  // r g b for online
+	std::vector<float> agraph_stable; // x y z
+	std::vector<float> agraph_action; // x y z two points for each action
 };
 
 class Viz: public QGLWidget {

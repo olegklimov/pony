@@ -105,7 +105,7 @@ class QNetPolicygrad(algo.Algorithm):
             action = Model( input=[inp_s], output=out_tensor )
             action.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))  # really optimal values here
             value  = Model( input=[inp_s], output=value_of_s )
-            value.compile(loss=only_up, optimizer=Adam(lr=0.00005, beta_2=0.9999))
+            value.compile(loss=only_up, optimizer=Adam(lr=0.0005, beta_2=0.9999))
             return action, value
         input_s = Input( shape=(xp.STATE_DIM,) )
         self.stable_policy_action, self.stable_policy_value = policy_net(input_s)
