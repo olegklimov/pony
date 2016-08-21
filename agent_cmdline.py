@@ -2,6 +2,8 @@ import os, sys, shutil
 os.environ['THEANO_FLAGS'] = "device=gpu"
 import theano, random, time, argparse
 theano.config.floatX = 'float32'
+#theano.config.compute_test_value = 'warn'
+theano.config.exception_verbosity = 'high'
 import numpy as np
 import scipy.misc
 import gym
@@ -136,7 +138,7 @@ env.viewer.window.on_close = close
 global_step_counter = 0
 
 # before starting a thread, check if everything works in main thread.
-alg.run_single_learn_iteration()
+alg.run_single_learn_iteration(False)
 alg.advantage_visualize(sn, env.action_space.sample(), env.action_space)
 
 from threading import Thread

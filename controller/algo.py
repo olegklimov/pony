@@ -15,12 +15,12 @@ class Algorithm:
                 import time
                 time.sleep(0.1)
             with self.save_load_mutex:
-                self.run_single_learn_iteration()
+                self.run_single_learn_iteration(self.dry_run)
                 if xp.epoch > 2: self.dry_run = False
 
-    def run_single_learn_iteration(self):
+    def run_single_learn_iteration(self, dry_run):
         buf = xp.batch(self.BATCH)
-        self._learn_iteration(buf, self.dry_run)
+        self._learn_iteration(buf, dry_run)
 
     def save(self, fn):
         with self.save_load_mutex:

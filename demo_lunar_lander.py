@@ -15,7 +15,8 @@ class DemoLunarLander(algo.Algorithm):
         pass
     def control(self, s, action_space):
         self.continuous = True
-        a  = ll.heuristic(self, s)
-        #rand = 0.02
-        #a += np.random.uniform( low=-rand, high=+rand, size=(4,) ) 
+        a = ll.heuristic(self, s)
+        rand = 0.2
+        a += np.random.uniform(low=-rand, high=+rand, size=(2,))
+        a  = np.clip(a, -1, +1)
         return a

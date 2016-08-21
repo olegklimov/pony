@@ -7,7 +7,7 @@ import keras
 import keras.models
 from keras import backend as K
 from keras.regularizers import l2, activity_l1l2, activity_l1, activity_l2
-from keras.layers.core import Dense, Lambda, Activation
+from keras.layers.core import Dense, Lambda, Activation, ActivityRegularization
 from keras.layers import Merge, merge, Input
 from keras.models import Model
 from keras.engine import Layer
@@ -52,32 +52,44 @@ class QNetPolicygrad(algo.Algorithm):
 
         clamp = Lambda(clamp_minus_one_plus_one)
 
+        input_s = Input( shape=(xp.STATE_DIM,) )
         def qmodel():
-            inp_s = Input( shape=(xp.STATE_DIM,) )  # batch (None, ...) added automatically
-            inp_a = Input( shape=(xp.ACTION_DIM,) )
-
-            v1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            v2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            v3 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            v_out = Dense(1, W_regularizer=l2(0.001))
+            inp_s = Input( shape=(xp.STATE_DIM,),  name="inp_s")  # batch (None, ...) added automatically
+            inp_a = Input( shape=(xp.ACTION_DIM,), name="inp_a")
 
             a1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
             a2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
             a3 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            a_out = Dense(1, bias=False, W_constraint=nonneg())#, activity_regularizer=activity_l2(0.001))
+
+            v1 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
+            v2 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
+            v3 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
+            v_out = Dense(1, W_regularizer=l2(0.00001))
+
+            #, activity_regularizer=activity_l2(0.001)
             #a_bell = Bell()
-            a_out  = Dense(1, bias=False, W_constraint=nonneg())
+            #wtf = ActivityRegularization(l2=0.01)
 
             gaussian = Lambda(gaussian_of_x, output_shape=gaussian_of_x_shape)
 
             parabolized_action = merge( [
                 a3(a2(a1( merge([inp_s, inp_a], mode='concat') ))),
-                gaussian(inp_a)
+                gaussian( merge([inp_s, inp_a], mode='concat') )
+                #gaussian(inp_a)
                 ], mode='mul')
+#            parabolized_value = merge( [
+#                v3(v2(v1(inp_s))),
+#                gaussian(inp_s)
+#                ], mode='mul')
 
-            out_tensor = merge( [
-                a_out( parabolized_action ),
-                v_out( v3(v2(v1(inp_s))) )
-                ], mode='sum' )
+            out_tensor = a_out( parabolized_action )
+            #merge( [
+                #a_out( a3(a2(a1( merge([inp_s, inp_a], mode='concat') ))) ),
+                #a_out( parabolized_action ),
+                #v_out( parabolized_value )
+                #v_out( v3(v2(v1(inp_s))) )
+                #], mode='sum' )
 
             #if self.mode in ['sum', 'mul', 'ave', 'max']:  'concat'
             #elif self.mode in ['dot', 'cos']:
@@ -86,13 +98,12 @@ class QNetPolicygrad(algo.Algorithm):
             Qmod.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
             return [v1,v2,v3,v_out, a1,a2,a3,a_out], Qmod
 
-        online_trainable, self.Q_online = qmodel()
         stable_trainable, self.Q_stable = qmodel()
+        online_trainable, self.Q_online = qmodel()
 
         for layer in stable_trainable:
             layer.trainable = False  # model already compiled (that's where this flag used), this assignment avoids learning by policy below
 
-        # activity_regularizer=activity_l2(0.001))
         def only_up(y_true, y_pred):
             return K.mean( -y_pred, axis=-1 )
         def policy_net(inp_s):
@@ -107,7 +118,6 @@ class QNetPolicygrad(algo.Algorithm):
             value  = Model( input=[inp_s], output=value_of_s )
             value.compile(loss=only_up, optimizer=Adam(lr=0.0005, beta_2=0.9999))
             return action, value
-        input_s = Input( shape=(xp.STATE_DIM,) )
         self.stable_policy_action, self.stable_policy_value = policy_net(input_s)
         self.online_policy_action, self.online_policy_value = policy_net(input_s)
 
@@ -144,7 +154,8 @@ class QNetPolicygrad(algo.Algorithm):
             if N > 2000:
                 self.use_random_policy = False
                 print("have %i random samples, start learning" % N)
-            return
+            else:
+                return
 
         BATCH = len(buf)
         #self.use_random_policy = N BATCH < self.BATCH  # few experience points
@@ -169,10 +180,8 @@ class QNetPolicygrad(algo.Algorithm):
             x.pv = pv[i][0]
             x.pa = pa[i]
             x.ps = ps[i]
-            #print "action", nv2_a[i]
-            #print "value1", nv[i][0]
-            #print "value2", nv2_v[i][0]
 
+        # stable v
         for i,x in enumerate(buf):
             batch_s[i] = x.s
             batch_a[i] = x.a
@@ -186,17 +195,20 @@ class QNetPolicygrad(algo.Algorithm):
             N = len(xp.replay)
             self.N = N
             v = 0
+            #stable_nv = 0
             episode = 0
-            #for i,x in enumerate(buf):
             for i in range(N-1,-1,-1):
                 x = xp.replay[i]
+                #x.stable_nv = stable_nv
                 if x.terminal:
                     v = 0
+                    stable_v = 0
                     episode += 1
                 x.episode = episode
                 v = v*self.GAMMA + x.r
                 x.wires_v = v
-            self.countdown = 20
+                #stable_nv = x.v
+                self.countdown = 20
         else:
             self.countdown -= 1
 
@@ -204,9 +216,9 @@ class QNetPolicygrad(algo.Algorithm):
         with xp.replay_mutex:
             for i,x in enumerate(buf):
                 if not (x.terminal and np.abs(x.r) > CRASH_OR_WIN_THRESHOLD):    # not crash
-                    #x.target_v = x.nv*self.GAMMA + x.r
-                    x.target_v = max(x.wires_v, x.nv*self.GAMMA + x.r)
-                    #v = max(x.target_v, x.v)                     # x.v is stable v
+                    bellman = x.nv*self.GAMMA + x.r
+                    #bellman = min( bellman, x.stable_nv*(1/self.GAMMA) )
+                    x.target_v = max(x.wires_v, bellman)
                     #x.target_v = v
                 else:
                     x.target_v = x.r
@@ -263,15 +275,18 @@ class QNetPolicygrad(algo.Algorithm):
             return action_space.sample()
         with self.stable_mutex:
             a = self.online_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
-        #import gym.envs.box2d.bipedal_walker as w
-        #if self.heuristic_timeout > 0:
-        #    self.heuristic_timeout -= 1
-        #    if self.heuristic_timeout==0:
-        #        print("heuristic over")
-        #    ah  = w.heuristic(self, s)
-        #    return ah
-        #else:
-        #print(a)
+        if 0:
+            import gym.envs.box2d.bipedal_walker as w
+            if self.heuristic_timeout > 0:
+                self.heuristic_timeout -= 1
+                if self.heuristic_timeout==0:
+                    print("heuristic over")
+                ah  = w.heuristic(self, s)
+                return ah
+        if 0:
+            import gym.envs.box2d.lunar_lander as ll
+            self.continuous = True
+            a = ll.heuristic(self, s)
         return a
 
     def advantage_visualize(self, s, a, action_space):
