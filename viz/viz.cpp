@@ -48,7 +48,8 @@ struct Quiver {
 	mapped_file_source file_step;
 	mapped_file_source file_episode;
 	mapped_file_source file_jpeg;
-	mapped_file_source file_action;
+	mapped_file_source file_action_online;
+	mapped_file_source file_action_stable;
 	mapped_file_source file_agraph_online;
 	mapped_file_source file_agraph_stable;
 
@@ -73,7 +74,8 @@ struct Quiver {
 		file_step.open(dir + "/step");
 		file_episode.open(dir + "/episode");
 		file_jpeg.open(dir + "/jpegmap");
-		file_action.open(dir + "/action");
+		file_action_online.open(dir + "/action_online");
+		file_action_stable.open(dir + "/action_stable");
 		file_agraph_online.open(dir + "/agraph_online");
 		file_agraph_stable.open(dir + "/agraph_stable");
 	}
@@ -93,7 +95,8 @@ struct Quiver {
 		file_step.close();
 		file_episode.close();
 		file_jpeg.close();
-		file_action.close();
+		file_action_online.close();
+		file_action_stable.close();
 		file_agraph_online.close();
 		file_agraph_stable.close();
 	}
@@ -262,10 +265,10 @@ struct Quiver {
 
 	void actions_reprocess(float w, float h, float z_range1)
 	{
-		int new_action_dim = file_action.size() / sizeof(float);
+		int new_action_dim = file_action_online.size() / sizeof(float);
 		if (new_action_dim!=ACTION_DIM) {
 			ACTION_DIM = new_action_dim;
-			ACTION_PIXELS = file_agraph_online.size() / file_action.size();
+			ACTION_PIXELS = file_agraph_online.size() / file_action_online.size();
 			printf("ACTION_DIM=%i, PIXELS=%i\n", ACTION_DIM, ACTION_PIXELS);
 		}
 
@@ -279,8 +282,10 @@ struct Quiver {
 		agraph_online.resize(3*ACTION_DIM*ACTION_PIXELS);
 		agraph_stable.resize(3*ACTION_DIM*ACTION_PIXELS);
 		agraph_color.resize(3*ACTION_DIM*ACTION_PIXELS);
-		agraph_action.resize(3*2*ACTION_DIM);
-		float* action = (float*)file_action.data();
+		agraph_action_online.resize(3*2*ACTION_DIM);
+		agraph_action_stable.resize(3*2*ACTION_DIM);
+		float* action_online = (float*)file_action_online.data();
+		float* action_stable = (float*)file_action_stable.data();
 		float* agraph_online_p = (float*)file_agraph_online.data();
 		float* agraph_stable_p = (float*)file_agraph_stable.data();
 		for (int c=0; c<ACTION_DIM; ++c) {
@@ -329,13 +334,20 @@ struct Quiver {
 				fill_color(ys, agraph_color.data() + ACTION_PIXELS*3*c + 3*p);
 			}
 
-			float x = action[c];
-			agraph_action[2*3*c + 0 + 0] = x*g.kx + g.dx;
-			agraph_action[2*3*c + 0 + 1] = +1.0*g.ky + g.dy;
-			agraph_action[2*3*c + 0 + 2] = -0.1;
-			agraph_action[2*3*c + 3 + 0] = x*g.kx + g.dx;
-			agraph_action[2*3*c + 3 + 1] = -1.0*g.ky + g.dy;
-			agraph_action[2*3*c + 3 + 2] = -0.1;
+			float x = action_online[c];
+			agraph_action_online[2*3*c + 0 + 0] = x*g.kx + g.dx;
+			agraph_action_online[2*3*c + 0 + 1] = +1.0*g.ky + g.dy;
+			agraph_action_online[2*3*c + 0 + 2] = -0.1;
+			agraph_action_online[2*3*c + 3 + 0] = x*g.kx + g.dx;
+			agraph_action_online[2*3*c + 3 + 1] = -1.0*g.ky + g.dy;
+			agraph_action_online[2*3*c + 3 + 2] = -0.1;
+			x = action_stable[c];
+			agraph_action_stable[2*3*c + 0 + 0] = x*g.kx + g.dx;
+			agraph_action_stable[2*3*c + 0 + 1] = +1.0*g.ky + g.dy;
+			agraph_action_stable[2*3*c + 0 + 2] = -0.1;
+			agraph_action_stable[2*3*c + 3 + 0] = x*g.kx + g.dx;
+			agraph_action_stable[2*3*c + 3 + 1] = -1.0*g.ky + g.dy;
+			agraph_action_stable[2*3*c + 3 + 2] = -0.1;
 		}
 	}
 
@@ -360,7 +372,10 @@ struct Quiver {
 		for (int c=0; c<ACTION_DIM; ++c)
 			glDrawArrays(GL_LINE_STRIP, c*ACTION_PIXELS, ACTION_PIXELS);
 		glColor3f(1.0f, 1.0f, 1.0f);
-		glVertexPointer(3, GL_FLOAT, 0, agraph_action.data());
+		glVertexPointer(3, GL_FLOAT, 0, agraph_action_online.data());
+		glDrawArrays(GL_LINES, 0, 2*ACTION_DIM);
+		glColor3f(0.5f, 0.5f, 0.5f);
+		glVertexPointer(3, GL_FLOAT, 0, agraph_action_stable.data());
 		glDrawArrays(GL_LINES, 0, 2*ACTION_DIM);
 		glDisableClientState(GL_VERTEX_ARRAY);
 		glEnable(GL_DEPTH_TEST);
@@ -378,7 +393,8 @@ struct Quiver {
 	std::vector<float> agraph_online; // x y z
 	std::vector<float> agraph_color;  // r g b for online
 	std::vector<float> agraph_stable; // x y z
-	std::vector<float> agraph_action; // x y z two points for each action
+	std::vector<float> agraph_action_online; // x y z two points for each action
+	std::vector<float> agraph_action_stable; // x y z two points for each action
 };
 
 class Viz: public QGLWidget {

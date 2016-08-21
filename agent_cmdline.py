@@ -199,6 +199,7 @@ def rollout():
             xp.replay.extend(track)
             xp.shuffle()
             xp.export_viz_open(dir, "r+")
+            print("now replay buffer have %i samples" % len(xp.replay))
         for i in range(200):
             env.viewer.window.dispatch_events()
             if not alg.useful_to_think_more(): break

@@ -39,7 +39,7 @@ def gaussian_of_x(x):
 def gaussian_of_x_shape(input_shape):
     shape = list(input_shape)
     assert len(shape) == 2  # only valid for 2D tensors
-    shape[-1] = 320
+    shape[-1] = 1  # 320
     return tuple(shape)
 
 class QNetPolicygrad(algo.Algorithm):
@@ -60,42 +60,43 @@ class QNetPolicygrad(algo.Algorithm):
             a1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
             a2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
             a3 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            a_out = Dense(1, bias=False, W_constraint=nonneg())#, activity_regularizer=activity_l2(0.001))
+            a_out = Dense(1, W_regularizer=l2(0.001))
 
+            #a_out = Dense(1, bias=False, W_constraint=nonneg())#, activity_regularizer=activity_l2(0.001))
             v1 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
             v2 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
             v3 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
             v_out = Dense(1, W_regularizer=l2(0.00001))
-
             #, activity_regularizer=activity_l2(0.001)
             #a_bell = Bell()
             #wtf = ActivityRegularization(l2=0.01)
 
-            gaussian = Lambda(gaussian_of_x, output_shape=gaussian_of_x_shape)
+            if 1:
+                gaussian = Lambda(gaussian_of_x, output_shape=gaussian_of_x_shape)
+                parabolized_action = merge( [
+                    a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) ),
+                    #gaussian( merge([inp_s, inp_a], mode='concat') )
+                    gaussian(inp_a)
+                    ], mode='mul')
+                out_tensor = merge( [
+                    parabolized_action,
+                    v_out( v2(v1(inp_s)) )
+                    ], mode='sum' )
+            else:
+                out_tensor = a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) )
+            #parabolized_value = merge( [
+            #    v3(v2(v1(inp_s))),
+            #    gaussian(inp_s)
+            #    ], mode='mul')
 
-            parabolized_action = merge( [
-                a3(a2(a1( merge([inp_s, inp_a], mode='concat') ))),
-                gaussian( merge([inp_s, inp_a], mode='concat') )
-                #gaussian(inp_a)
-                ], mode='mul')
-#            parabolized_value = merge( [
-#                v3(v2(v1(inp_s))),
-#                gaussian(inp_s)
-#                ], mode='mul')
-
-            out_tensor = a_out( parabolized_action )
-            #merge( [
-                #a_out( a3(a2(a1( merge([inp_s, inp_a], mode='concat') ))) ),
-                #a_out( parabolized_action ),
-                #v_out( parabolized_value )
-                #v_out( v3(v2(v1(inp_s))) )
-                #], mode='sum' )
+            #out_tensor = a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) )
 
             #if self.mode in ['sum', 'mul', 'ave', 'max']:  'concat'
             #elif self.mode in ['dot', 'cos']:
 
             Qmod = Model( input=[inp_s,inp_a], output=out_tensor )
             Qmod.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
+            #return [v1,v2,v3,v_out, a1,a2,a3,a_out], Qmod
             return [v1,v2,v3,v_out, a1,a2,a3,a_out], Qmod
 
         stable_trainable, self.Q_stable = qmodel()
@@ -116,7 +117,7 @@ class QNetPolicygrad(algo.Algorithm):
             action = Model( input=[inp_s], output=out_tensor )
             action.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))  # really optimal values here
             value  = Model( input=[inp_s], output=value_of_s )
-            value.compile(loss=only_up, optimizer=Adam(lr=0.0005, beta_2=0.9999))
+            value.compile(loss=only_up, optimizer=Adam(lr=0.0002, beta_2=0.9999))
             return action, value
         self.stable_policy_action, self.stable_policy_value = policy_net(input_s)
         self.online_policy_action, self.online_policy_value = policy_net(input_s)
@@ -134,24 +135,24 @@ class QNetPolicygrad(algo.Algorithm):
             batch_s[i] = x.s
             batch_a[i] = x.a
         with self.stable_mutex:
-            loss = self.online_policy_action.train_on_batch( batch_s, batch_a )  # uses stable Q
+            loss = self.online_policy_action.train_on_batch( batch_s, batch_a )
             if self.demo_policy_tolearn==0:
                 w = self.online_policy_action.get_weights()
                 self.stable_policy_action.set_weights(w)
-                print("COPY")
-            else:
-                print(loss)
+                print("copy to stable policy")
+            elif self.demo_policy_tolearn % 100 == 0:
+                print("%05i supervised demo learn %0.4f" % (self.demo_policy_tolearn, loss))
 
     def _learn_iteration(self, buf, dry_run):
-        #if self.demo_policy_tolearn > 0 and not dry_run:
-            #self.demo_policy_tolearn -= 1
-            #self._learn_demo_policy_supervised(buf, dry_run)
-        #    return
+        if self.demo_policy_tolearn > 0 and not dry_run:
+            self.demo_policy_tolearn -= 1
+            self._learn_demo_policy_supervised(buf, dry_run)
+            return
 
         if self.use_random_policy:
             N = len(xp.replay)
             self.N = N
-            if N > 2000:
+            if N > 1000:
                 self.use_random_policy = False
                 print("have %i random samples, start learning" % N)
             else:
@@ -247,13 +248,16 @@ class QNetPolicygrad(algo.Algorithm):
                 wires_loss = self.Q_online.train_on_batch( [batch_s, batch_a], batch_t )
             #test1 = self.Q_stable.test_on_batch( [batch_s, batch_a], batch_t )
             with self.stable_mutex:
-                policy_loss = self.online_policy_value.train_on_batch(batch_s, batch_t)
+                policy_loss = self.online_policy_value.train_on_batch(batch_s, batch_t)  # target not used, see only_up()
+                stable_policy_a = self.stable_policy_action.predict(batch_s)
+                policy_loss = self.online_policy_action.train_on_batch(batch_s, stable_policy_a)
+
             #test2 = self.Q_stable.test_on_batch( [batch_s, batch_a], batch_t )
             #print("test1", test1, "test2", test2)
             #print("WIRES %0.4f POLICY %0.4f TRANS %0.4f" % (wires_loss, policy_loss, trans_loss))
             with self.online_mutex:
                 self._slowly_transfer_weights_to_stable_network(self.Q_stable, self.Q_online, self.TAU)
-            self._slowly_transfer_weights_to_stable_network(self.stable_policy_value, self.online_policy_value, 0.0001)
+            #self._slowly_transfer_weights_to_stable_network(self.stable_policy_value, self.online_policy_value, 0.0001)
 
     def _save(self, fn):
         self.Q_stable.save_weights(fn + "_qnet.h5", overwrite=True)
@@ -275,6 +279,17 @@ class QNetPolicygrad(algo.Algorithm):
             return action_space.sample()
         with self.stable_mutex:
             a = self.online_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
+            #batch_s = np.zeros( (1, xp.STATE_DIM) )
+            #batch_t = np.zeros( (1, 1) )
+            #batch_s[0] = s
+            #t1 = self.online_policy_value.predict(batch_s)
+            #print "BEFORE", a
+            #for c in range(50):
+            #    policy_loss = self.online_policy_value.train_on_batch(batch_s, batch_t)
+            #    print ("control policy_loss %0.5f" % policy_loss)
+            #a = self.online_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
+            #t2 = self.online_policy_value.predict(batch_s)
+            #print "VALUE %0.5f -> %0.5f" % (t1,t2)
         if 0:
             import gym.envs.box2d.bipedal_walker as w
             if self.heuristic_timeout > 0:
@@ -299,11 +314,13 @@ class QNetPolicygrad(algo.Algorithm):
                 batch_s[i*PIXELS + p] = s
                 batch_a[i*PIXELS + p] = a
                 batch_a[i*PIXELS + p, i] = action_space.low[i] + p*pk
-        with self.stable_mutex:
-            stable_v = self.Q_stable.predict( [batch_s, batch_a] )
         with self.online_mutex:
             online_v = self.Q_online.predict( [batch_s, batch_a] )
-        xp.export_viz.action[:] = a
+        with self.stable_mutex:
+            ast = self.stable_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
+            stable_v = self.Q_stable.predict( [batch_s, batch_a] )
+        xp.export_viz.action_online[:] = a
+        xp.export_viz.action_stable[:] = ast
         xp.export_viz.agraph_online[:] = online_v
         xp.export_viz.agraph_stable[:] = stable_v
 

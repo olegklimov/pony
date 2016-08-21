@@ -90,7 +90,8 @@ class ExportViz:
         self.step     = np.memmap(dir+"/step",     mode=mode, shape=(more_N,), dtype=np.int32)
         self.episode  = np.memmap(dir+"/episode",  mode=mode, shape=(more_N,), dtype=np.int32)
         self.jpeg     = np.memmap(dir+"/jpegmap",  mode=mode, shape=(more_N*16,), dtype=np.int8)
-        self.action   = np.memmap(dir+"/action",   mode=mode, shape=(ACTION_DIM,), dtype=np.float32)
+        self.action_online = np.memmap(dir+"/action_online", mode=mode, shape=(ACTION_DIM,), dtype=np.float32)
+        self.action_stable = np.memmap(dir+"/action_stable", mode=mode, shape=(ACTION_DIM,), dtype=np.float32)
         self.agraph_online = np.memmap(dir+"/agraph_online", mode=mode, shape=(ACTION_PIXELS*ACTION_DIM,1), dtype=np.float32)
         self.agraph_stable = np.memmap(dir+"/agraph_stable", mode=mode, shape=(ACTION_PIXELS*ACTION_DIM,1), dtype=np.float32)
 
@@ -121,9 +122,10 @@ def export_viz_open(dir, mode="w+"):
         if x.jpeg:
             import os
             j = x.jpeg[len(dir)+1:]
+            assert len(j) <= 15, "'%s' too long" % j
             for c in range(len(j)):
-                assert c < 15
                 export_viz.jpeg[x.viz_n*16 + c] = ord(j[c])
+            export_viz.jpeg[x.viz_n*16 + len(j)] = 0
         else:
             export_viz.jpeg[x.viz_n*16 + 0] = 0
 
