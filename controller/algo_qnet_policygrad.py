@@ -59,8 +59,8 @@ class QNetPolicygrad(algo.Algorithm):
 
             a1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
             a2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            a3 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            a_out = Dense(1, W_regularizer=l2(0.001))
+            a3 = Dense(320, activation='relu', W_regularizer=l2(0.001), activity_regularizer=activity_l2(0.001))
+            a_out = Dense(1, W_regularizer=l2(0.001), W_constraint=nonneg())
 
             #a_out = Dense(1, bias=False, W_constraint=nonneg())#, activity_regularizer=activity_l2(0.001))
             v1 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
@@ -107,17 +107,20 @@ class QNetPolicygrad(algo.Algorithm):
 
         def only_up(y_true, y_pred):
             return K.mean( -y_pred, axis=-1 )
+        def close_to_previous_policy(act_previous, a_act_predicted):
+            return 100*K.mean(K.square(a_act_predicted - act_previous), axis=-1)
+
         def policy_net(inp_s):
             d1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
             d2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
             d3 = Dense(320, activation='relu', W_regularizer=l2(0.001))
             out = Dense(xp.ACTION_DIM)
-            out_tensor = clamp(out( d3(d2(d1(inp_s))) ))
-            value_of_s = self.Q_stable( [inp_s,out_tensor] )
-            action = Model( input=[inp_s], output=out_tensor )
+            out_action = clamp(out( d3(d2(d1(inp_s))) ))
+            value_of_s = self.Q_stable( [inp_s,out_action] )
+            action = Model( input=[inp_s], output=out_action )
             action.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))  # really optimal values here
-            value  = Model( input=[inp_s], output=value_of_s )
-            value.compile(loss=only_up, optimizer=Adam(lr=0.0002, beta_2=0.9999))
+            value  = Model( input=[inp_s], output=[out_action,value_of_s] )
+            value.compile(loss=[close_to_previous_policy,only_up], optimizer=Adam(lr=0.0005, beta_2=0.9999))
             return action, value
         self.stable_policy_action, self.stable_policy_value = policy_net(input_s)
         self.online_policy_action, self.online_policy_value = policy_net(input_s)
@@ -125,7 +128,8 @@ class QNetPolicygrad(algo.Algorithm):
         self.trans = transition_model.Transition()
 
         self.countdown = 0
-        self.demo_policy_tolearn = 2000
+        self.demo_policy_tolearn = 0  #2000
+        self.new_xp_counter = 5
         self.use_random_policy = True
 
     def _learn_demo_policy_supervised(self, buf, dry_run):
@@ -156,11 +160,10 @@ class QNetPolicygrad(algo.Algorithm):
                 self.use_random_policy = False
                 print("have %i random samples, start learning" % N)
             else:
+                self.demo_policy_tolearn = 0  # random action taken, supervised demo learning not applicable
                 return
 
         BATCH = len(buf)
-        #self.use_random_policy = N BATCH < self.BATCH  # few experience points
-        #if self.use_random_policy: return
         assert(self.BATCH==BATCH)
 
         batch_s = np.zeros( (BATCH, xp.STATE_DIM) )
@@ -170,8 +173,8 @@ class QNetPolicygrad(algo.Algorithm):
         for i,x in enumerate(buf):
             batch_s[i] = x.sn
         with self.stable_mutex:
-            nv = self.stable_policy_value.predict(batch_s)
-            pv = self.online_policy_value.predict(batch_s)
+            _, nv = self.stable_policy_value.predict(batch_s)
+            _, pv = self.online_policy_value.predict(batch_s)
             pa = self.online_policy_action.predict(batch_s)
             ps = self.trans.predict(batch_s, pa)
             #nv2_a = self.stable_policy_action.predict(batch_s)
@@ -195,21 +198,23 @@ class QNetPolicygrad(algo.Algorithm):
         if self.countdown==0:
             N = len(xp.replay)
             self.N = N
+            self.global_maximum_reward = 0
+            total_reward = 0
             v = 0
-            #stable_nv = 0
             episode = 0
             for i in range(N-1,-1,-1):
                 x = xp.replay[i]
-                #x.stable_nv = stable_nv
                 if x.terminal:
                     v = 0
-                    stable_v = 0
+                    self.global_maximum_reward = max(self.global_maximum_reward, total_reward)
+                    total_reward = 0
                     episode += 1
                 x.episode = episode
                 v = v*self.GAMMA + x.r
                 x.wires_v = v
-                #stable_nv = x.v
-                self.countdown = 20
+                if x.r>0: total_reward += x.r
+            print "self.global_maximum_reward %s" % self.global_maximum_reward
+            self.countdown = 20
         else:
             self.countdown -= 1
 
@@ -219,7 +224,8 @@ class QNetPolicygrad(algo.Algorithm):
                 if not (x.terminal and np.abs(x.r) > CRASH_OR_WIN_THRESHOLD):    # not crash
                     bellman = x.nv*self.GAMMA + x.r
                     #bellman = min( bellman, x.stable_nv*(1/self.GAMMA) )
-                    x.target_v = max(x.wires_v, bellman)
+                    t = max(x.wires_v, bellman)
+                    x.target_v = min(self.global_maximum_reward*1.05, t)
                     #x.target_v = v
                 else:
                     x.target_v = x.r
@@ -248,10 +254,8 @@ class QNetPolicygrad(algo.Algorithm):
                 wires_loss = self.Q_online.train_on_batch( [batch_s, batch_a], batch_t )
             #test1 = self.Q_stable.test_on_batch( [batch_s, batch_a], batch_t )
             with self.stable_mutex:
-                policy_loss = self.online_policy_value.train_on_batch(batch_s, batch_t)  # target not used, see only_up()
                 stable_policy_a = self.stable_policy_action.predict(batch_s)
-                policy_loss = self.online_policy_action.train_on_batch(batch_s, stable_policy_a)
-
+                policy_loss = self.online_policy_value.train_on_batch(batch_s, [stable_policy_a,batch_t])  # batch_t target not used, see only_up()
             #test2 = self.Q_stable.test_on_batch( [batch_s, batch_a], batch_t )
             #print("test1", test1, "test2", test2)
             #print("WIRES %0.4f POLICY %0.4f TRANS %0.4f" % (wires_loss, policy_loss, trans_loss))
@@ -271,8 +275,17 @@ class QNetPolicygrad(algo.Algorithm):
         self.trans.model.load_weights(fn + "_trans.h5")
         self.demo_policy_tolearn = 0
 
-    def _reset(self):
-        self.heuristic_timeout = np.random.randint(low=0, high=100)
+    def _reset(self, new_experience):
+        #self.heuristic_timeout = np.random.randint(low=0, high=100)
+        if new_experience:
+            if self.new_xp_counter > 0:
+                self.new_xp_counter -= 1
+                return
+            #print "POLICY TO STABLE"
+            with self.online_mutex:
+                ws_online = self.online_policy_action.get_weights()
+            with self.stable_mutex:
+                self.stable_policy_action.set_weights(ws_online)
 
     def _control(self, s, action_space):
         if self.use_random_policy:

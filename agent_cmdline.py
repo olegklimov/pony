@@ -130,7 +130,7 @@ def close():
     human_wants_quit = True
 
 sn = env.reset()
-alg.reset()
+alg.reset(False)
 env.render()
 env.viewer.window.on_key_press = key_press
 env.viewer.window.on_key_release = key_release
@@ -193,8 +193,10 @@ def rollout():
         if done: break
 
     print("last reward %0.2f on step %i" % (r, ts))
+
     if track and human_records_xp:
         new_xp.extend(track)
+        alg.reset(True)
         with xp.replay_mutex:
             xp.replay.extend(track)
             xp.shuffle()
@@ -206,8 +208,9 @@ def rollout():
             if human_wants_quit: break
             if human_wants_restart: break
             time.sleep(0.1)
+    else:
+            alg.reset(False)
     sn = env.reset()
-    alg.reset()
     if human_single_run > 0:
         human_single_run -= 1
         print("SINGLE RUN %i LEFT" % human_single_run)

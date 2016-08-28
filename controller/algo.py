@@ -35,8 +35,8 @@ class Algorithm:
             xp.epoch = 0.0
             xp.epoch_sample_counter = 0
 
-    def reset(self):
-        self._reset()
+    def reset(self, new_experience):
+        self._reset(new_experience)
 
     def control(self, s, action_space):
         return self._control(s, action_space)

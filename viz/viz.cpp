@@ -374,7 +374,7 @@ struct Quiver {
 		glColor3f(1.0f, 1.0f, 1.0f);
 		glVertexPointer(3, GL_FLOAT, 0, agraph_action_online.data());
 		glDrawArrays(GL_LINES, 0, 2*ACTION_DIM);
-		glColor3f(0.5f, 0.5f, 0.5f);
+		glColor3f(0.9f, 0.0f, 0.9f);
 		glVertexPointer(3, GL_FLOAT, 0, agraph_action_stable.data());
 		glDrawArrays(GL_LINES, 0, 2*ACTION_DIM);
 		glDisableClientState(GL_VERTEX_ARRAY);
