@@ -40,6 +40,7 @@ class XPoint:
 
         self.v = 0
         self.nv = 0
+        self.density = 0
 
     def to_jsonable(self):
         j = { "s": self.s.tolist(), "sn": self.sn.tolist(), "a": self.a.tolist(), "r": self.r, "step": self.step }

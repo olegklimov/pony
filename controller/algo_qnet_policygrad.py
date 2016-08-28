@@ -15,18 +15,6 @@ from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
 from keras.constraints import nonneg
 from threading import Lock
 
-#class Bell(Layer):
-#    def __init__(self, **kwargs):
-#        self.supports_masking = True
-#        super(Bell, self).__init__(**kwargs)
-#    def call(self, x, mask=None):
-#        return K.exp(-x*x)
-#        #return -K.abs(x)
-#    def get_config(self):
-#        config = {}
-#        base_config = super(Bell, self).get_config()
-#        return dict(list(base_config.items()) + list(config.items()))
-
 CRASH_OR_WIN_THRESHOLD = 50   # pin value function if last state is win or crash, ignore bootstrap
 
 def clamp_minus_one_plus_one(x):
@@ -62,41 +50,23 @@ class QNetPolicygrad(algo.Algorithm):
             a3 = Dense(320, activation='relu', W_regularizer=l2(0.001), activity_regularizer=activity_l2(0.001))
             a_out = Dense(1, W_regularizer=l2(0.001), W_constraint=nonneg())
 
-            #a_out = Dense(1, bias=False, W_constraint=nonneg())#, activity_regularizer=activity_l2(0.001))
             v1 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
             v2 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
             v3 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
             v_out = Dense(1, W_regularizer=l2(0.00001))
-            #, activity_regularizer=activity_l2(0.001)
-            #a_bell = Bell()
-            #wtf = ActivityRegularization(l2=0.01)
 
-            if 1:
-                gaussian = Lambda(gaussian_of_x, output_shape=gaussian_of_x_shape)
-                parabolized_action = merge( [
-                    a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) ),
-                    #gaussian( merge([inp_s, inp_a], mode='concat') )
-                    gaussian(inp_a)
-                    ], mode='mul')
-                out_tensor = merge( [
-                    parabolized_action,
-                    v_out( v2(v1(inp_s)) )
-                    ], mode='sum' )
-            else:
-                out_tensor = a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) )
-            #parabolized_value = merge( [
-            #    v3(v2(v1(inp_s))),
-            #    gaussian(inp_s)
-            #    ], mode='mul')
-
-            #out_tensor = a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) )
-
-            #if self.mode in ['sum', 'mul', 'ave', 'max']:  'concat'
-            #elif self.mode in ['dot', 'cos']:
+            gaussian = Lambda(gaussian_of_x, output_shape=gaussian_of_x_shape)
+            parabolized_action = merge( [
+                a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) ),
+                gaussian(inp_a)
+                ], mode='mul')
+            out_tensor = merge( [
+                parabolized_action,
+                v_out( v2(v1(inp_s)) )
+                ], mode='sum' )
 
             Qmod = Model( input=[inp_s,inp_a], output=out_tensor )
             Qmod.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
-            #return [v1,v2,v3,v_out, a1,a2,a3,a_out], Qmod
             return [v1,v2,v3,v_out, a1,a2,a3,a_out], Qmod
 
         stable_trainable, self.Q_stable = qmodel()
@@ -176,7 +146,7 @@ class QNetPolicygrad(algo.Algorithm):
             _, nv = self.stable_policy_value.predict(batch_s)
             _, pv = self.online_policy_value.predict(batch_s)
             pa = self.online_policy_action.predict(batch_s)
-            ps = self.trans.predict(batch_s, pa)
+            ps, pr = self.trans.predict(batch_s, pa)
             #nv2_a = self.stable_policy_action.predict(batch_s)
             #nv2_v = self.Q_stable.predict( [batch_s, nv2_a] )
         for i,x in enumerate(buf):
@@ -198,7 +168,6 @@ class QNetPolicygrad(algo.Algorithm):
         if self.countdown==0:
             N = len(xp.replay)
             self.N = N
-            self.global_maximum_reward = 0
             total_reward = 0
             v = 0
             episode = 0
@@ -206,14 +175,12 @@ class QNetPolicygrad(algo.Algorithm):
                 x = xp.replay[i]
                 if x.terminal:
                     v = 0
-                    self.global_maximum_reward = max(self.global_maximum_reward, total_reward)
                     total_reward = 0
                     episode += 1
                 x.episode = episode
                 v = v*self.GAMMA + x.r
                 x.wires_v = v
                 if x.r>0: total_reward += x.r
-            print "self.global_maximum_reward %s" % self.global_maximum_reward
             self.countdown = 20
         else:
             self.countdown -= 1
@@ -223,13 +190,9 @@ class QNetPolicygrad(algo.Algorithm):
             for i,x in enumerate(buf):
                 if not (x.terminal and np.abs(x.r) > CRASH_OR_WIN_THRESHOLD):    # not crash
                     bellman = x.nv*self.GAMMA + x.r
-                    #bellman = min( bellman, x.stable_nv*(1/self.GAMMA) )
-                    t = max(x.wires_v, bellman)
-                    x.target_v = min(self.global_maximum_reward*1.05, t)
-                    #x.target_v = v
+                    x.target_v = max(x.wires_v, bellman)
                 else:
                     x.target_v = x.r
-                #x.target_v = x.nv*self.GAMMA + x.r
                 batch_t[i,0] = x.target_v
                 xp.export_viz.state1[x.viz_n] = x.s
                 xp.export_viz.state2[x.viz_n] = x.sn
@@ -261,7 +224,6 @@ class QNetPolicygrad(algo.Algorithm):
             #print("WIRES %0.4f POLICY %0.4f TRANS %0.4f" % (wires_loss, policy_loss, trans_loss))
             with self.online_mutex:
                 self._slowly_transfer_weights_to_stable_network(self.Q_stable, self.Q_online, self.TAU)
-            #self._slowly_transfer_weights_to_stable_network(self.stable_policy_value, self.online_policy_value, 0.0001)
 
     def _save(self, fn):
         self.Q_stable.save_weights(fn + "_qnet.h5", overwrite=True)
@@ -276,7 +238,6 @@ class QNetPolicygrad(algo.Algorithm):
         self.demo_policy_tolearn = 0
 
     def _reset(self, new_experience):
-        #self.heuristic_timeout = np.random.randint(low=0, high=100)
         if new_experience:
             if self.new_xp_counter > 0:
                 self.new_xp_counter -= 1
@@ -292,17 +253,6 @@ class QNetPolicygrad(algo.Algorithm):
             return action_space.sample()
         with self.stable_mutex:
             a = self.online_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
-            #batch_s = np.zeros( (1, xp.STATE_DIM) )
-            #batch_t = np.zeros( (1, 1) )
-            #batch_s[0] = s
-            #t1 = self.online_policy_value.predict(batch_s)
-            #print "BEFORE", a
-            #for c in range(50):
-            #    policy_loss = self.online_policy_value.train_on_batch(batch_s, batch_t)
-            #    print ("control policy_loss %0.5f" % policy_loss)
-            #a = self.online_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
-            #t2 = self.online_policy_value.predict(batch_s)
-            #print "VALUE %0.5f -> %0.5f" % (t1,t2)
         if 0:
             import gym.envs.box2d.bipedal_walker as w
             if self.heuristic_timeout > 0:
