@@ -36,18 +36,19 @@ struct Quiver {
 	int N = 0;
 	int STATEDIM;
 	mapped_file_source file_N;
-	mapped_file_source file_state1;
-	mapped_file_source file_state2;
-	mapped_file_source file_state_trans;
-	mapped_file_source file_state_policy;
-	mapped_file_source file_Vonline1;
-	mapped_file_source file_Vstable1;
-	mapped_file_source file_Vstable2;
-	mapped_file_source file_Vtarget;
-	mapped_file_source file_Vpolicy;
+	mapped_file_source file_s;
+	mapped_file_source file_v;
+	mapped_file_source file_sn;
+	mapped_file_source file_vn;
+	mapped_file_source file_st;
+	mapped_file_source file_vt;
+	mapped_file_source file_sp;
+	mapped_file_source file_vp;
+	mapped_file_source file_ttest;
 	mapped_file_source file_step;
 	mapped_file_source file_episode;
 	mapped_file_source file_jpeg;
+	mapped_file_source file_flags;
 	mapped_file_source file_action_online;
 	mapped_file_source file_action_stable;
 	mapped_file_source file_agraph_online;
@@ -61,40 +62,42 @@ struct Quiver {
 	void open(const std::string& dir_)
 	{
 		dir = dir_;
-		file_N.open(dir + "/N");
-		file_state1.open(dir + "/state1");
-		file_state2.open(dir + "/state2");
-		file_state_trans.open(dir + "/state_transition");
-		file_state_policy.open(dir + "/state_policy");
-		file_Vonline1.open(dir + "/Vonline1");
-		file_Vstable1.open(dir + "/Vstable1");
-		file_Vstable2.open(dir + "/Vstable2");
-		file_Vtarget.open(dir + "/Vtarget");
-		file_Vpolicy.open(dir + "/Vpolicy");
-		file_step.open(dir + "/step");
-		file_episode.open(dir + "/episode");
-		file_jpeg.open(dir + "/jpegmap");
-		file_action_online.open(dir + "/action_online");
-		file_action_stable.open(dir + "/action_stable");
-		file_agraph_online.open(dir + "/agraph_online");
-		file_agraph_stable.open(dir + "/agraph_stable");
+		file_N.open(dir + "/mmap_N");
+		file_s .open(dir + "/mmap_s");
+		file_v .open(dir + "/mmap_v");
+		file_sn.open(dir + "/mmap_sn");
+		file_vn.open(dir + "/mmap_vn");
+		file_st.open(dir + "/mmap_st");
+		file_vt.open(dir + "/mmap_vt");
+		file_sp.open(dir + "/mmap_sp");
+		file_vp.open(dir + "/mmap_vp");
+		file_ttest.open(dir + "/mmap_ttest");
+		file_step.open(dir + "/mmap_step");
+		file_episode.open(dir + "/mmap_episode");
+		file_jpeg.open(dir + "/mmap_jpegmap");
+		file_flags.open(dir + "/mmap_flags");
+		file_action_online.open(dir + "/mmap_action_online");
+		file_action_stable.open(dir + "/mmap_action_stable");
+		file_agraph_online.open(dir + "/mmap_agraph_online");
+		file_agraph_stable.open(dir + "/mmap_agraph_stable");
 	}
 
 	void close()
 	{
 		file_N.close();
-		file_state1.close();
-		file_state2.close();
-		file_state_trans.close();
-		file_state_policy.close();
-		file_Vonline1.close();
-		file_Vstable1.close();
-		file_Vstable2.close();
-		file_Vtarget.close();
-		file_Vpolicy.close();
+		file_s.close();
+		file_v.close();
+		file_sn.close();
+		file_vn.close();
+		file_st.close();
+		file_vt.close();
+		file_sp.close();
+		file_vp.close();
+		file_ttest.close();
 		file_step.close();
 		file_episode.close();
 		file_jpeg.close();
+		file_flags.close();
 		file_action_online.close();
 		file_action_stable.close();
 		file_agraph_online.close();
@@ -118,21 +121,21 @@ struct Quiver {
 		return dir + "/" + (jpeg + 16*n); // ".BipedalWalker-v2/z00020.jpg"
 	}
 
-	float val_from_axis(float* s, float xy_range1, int axis, int step, float step_f, float step_k, float V, float V_range1)
+	float val_from_axis(float* s, float xy_range1, int axis, int step, float step_f, float step_k, float V, float V_range1, bool mode_transition)
 	{
 		if (axis>=0 && axis<STATEDIM) return s[axis]*xy_range1;
 		if (axis==-1) return -1 + (step-step_f)*step_k;
-		if (axis==-2) return V*V_range1;
+		if (axis==-2) return mode_transition ? 0.0 : V*V_range1;
 		return 0;
 	}
 
 	void print_about(int ind)
 	{
 		int i = ind;
-		float* Vstable1 = (float*) file_Vstable1.data();
-		float* Vstable2 = (float*) file_Vstable2.data();
+		float* Vstable1 = (float*) file_v.data();
+		float* Vstable2 = (float*) file_vn.data();
 		const int* episode = (const int*) file_episode.data();
-		float* Vtarget  = (float*) file_Vtarget.data();
+		float* Vtarget  = (float*) file_vt.data();
 		const char* jpeg = (const char*) file_jpeg.data();
 		int this_episode = episode[i];
 		while (this_episode==episode[i]) {
@@ -162,13 +165,15 @@ struct Quiver {
 		int axis3,
 		int axis4,
 		int timefilter_t1, int timefilter_t2,
-		bool mode_trans,
-		bool mode_policy
+		// s_vn
+		bool mode_transition,
+		bool mode_policy,
+		bool mode_target
 		)
 	{
 		int new_N = ((int*)file_N.data())[0];
 		if (new_N!=N) {
-			STATEDIM = file_state1.size() / file_Vonline1.size();
+			STATEDIM = file_s.size() / file_v.size();
 			N = new_N;
 			render_N = 0;
 			printf("N=%i STATEDIM=%i\n", N, STATEDIM);
@@ -176,18 +181,21 @@ struct Quiver {
 			open(dir);
 		}
 		if (N==0) return;
-		float* s1 = (float*) file_state1.data();
-		float* s2 = (float*) file_state2.data();
-		float* Vonline1 = (float*) file_Vonline1.data();
-		float* Vstable1 = (float*) file_Vstable1.data();
-		float* Vstable2 = (float*) file_Vstable2.data();
-		float* Vtarget  = (float*) file_Vtarget.data();
-		int* step       = (int*) file_step.data();
-		if (mode_trans) {
-			s2 = (float*) file_state_trans.data();
+		float* s1 = (float*) file_s.data();
+		float* s2 = (float*) file_sn.data();
+		float* v1 = (float*) file_v.data();
+		float* v2 = (float*) file_vn.data();
+		int* step = (int*)   file_step.data();
+		int* flags = (int*)  file_flags.data();
+		if (mode_transition) {
+			s2 = (float*) file_ttest.data();
+			v2 = v1;
+		} else if (mode_target) {
+			s2 = (float*) file_st.data();
+			v2 = (float*) file_vt.data();
 		} else if (mode_policy) {
-			s2 = (float*) file_state_policy.data();
-			Vstable2 = (float*) file_Vpolicy.data();
+			s2 = (float*) file_sp.data();
+			v2 = (float*) file_vp.data();
 		}
 		float step_f;
 		float step_k;
@@ -211,20 +219,30 @@ struct Quiver {
 			if (filtered) continue;
 			rendered2index.push_back(c);
 
-			vertex[6*cursor+0] = val_from_axis( s1+STATEDIM*c, xy_range1, axis1, step[c], step_f, step_k, Vstable1[c], z_range1 );
-			vertex[6*cursor+1] = val_from_axis( s1+STATEDIM*c, xy_range1, axis2, step[c], step_f, step_k, Vstable1[c], z_range1 );
-			vertex[6*cursor+2] = val_from_axis( s1+STATEDIM*c, xy_range1, axis3, step[c], step_f, step_k, Vstable1[c], z_range1 );
-			float color1       = val_from_axis( s1+STATEDIM*c, xy_range1, axis4, step[c], step_f, step_k, Vstable1[c], z_range1 );
+			vertex[6*cursor+0] = val_from_axis( s1+STATEDIM*c, xy_range1, axis1, step[c], step_f, step_k, v1[c], z_range1, mode_transition );
+			vertex[6*cursor+1] = val_from_axis( s1+STATEDIM*c, xy_range1, axis2, step[c], step_f, step_k, v1[c], z_range1, mode_transition );
+			vertex[6*cursor+2] = val_from_axis( s1+STATEDIM*c, xy_range1, axis3, step[c], step_f, step_k, v1[c], z_range1, mode_transition );
+			float color1       = val_from_axis( s1+STATEDIM*c, xy_range1, axis4, step[c], step_f, step_k, v1[c], z_range1, mode_transition );
 			fill_color(color1, vcolor.data()+6*cursor);
 
-			vertex[6*cursor+3] = val_from_axis( s2+STATEDIM*c, xy_range1, axis1, step[c]+1, step_f, step_k, Vstable2[c], z_range1 );
-			vertex[6*cursor+4] = val_from_axis( s2+STATEDIM*c, xy_range1, axis2, step[c]+1, step_f, step_k, Vstable2[c], z_range1 );
-			vertex[6*cursor+5] = val_from_axis( s2+STATEDIM*c, xy_range1, axis3, step[c]+1, step_f, step_k, Vstable2[c], z_range1 );
-			float color2       = val_from_axis( s2+STATEDIM*c, xy_range1, axis4, step[c]+1, step_f, step_k, Vstable2[c], z_range1 );
+			vertex[6*cursor+3] = val_from_axis( s2+STATEDIM*c, xy_range1, axis1, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
+			vertex[6*cursor+4] = val_from_axis( s2+STATEDIM*c, xy_range1, axis2, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
+			vertex[6*cursor+5] = val_from_axis( s2+STATEDIM*c, xy_range1, axis3, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
+			float color2       = val_from_axis( s2+STATEDIM*c, xy_range1, axis4, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
 			fill_color(color2, vcolor.data()+6*cursor+3);
-			//if (Vtarget[c] > Vonline1[c]) 
+
+			if (flags[c] & 1) {
+				vcolor[6*cursor+3] = 0.2;
+				vcolor[6*cursor+4] = 0.2;
+				vcolor[6*cursor+5] = 0.2;
+				//vcolor[6*cursor+3] += 0.5;
+				//vcolor[6*cursor+4] += 0.5;
+				//vcolor[6*cursor+5] += 0.5;
+			}
+
 			cursor++;
 		}
+
 		render_N = cursor;
 		assert((int)rendered2index.size()==render_N);
 	}
@@ -630,8 +648,9 @@ public:
 
 	QSpinBox* axis[4];
 
-	QRadioButton* mode_value;
-	QRadioButton* mode_transition_acc;
+	QRadioButton* mode_s_vn;
+	QRadioButton* mode_target;
+	QRadioButton* mode_transition;
 	QRadioButton* mode_policy;
 	
 	QCheckBox* timefilter_checkbox;
@@ -688,17 +707,20 @@ public:
 		
 		{
 			QGroupBox* box = new QGroupBox(tr("Mode"));
-			mode_value = new QRadioButton("Value Iteration");
-			mode_transition_acc = new QRadioButton("Transition Acc");
-			mode_policy = new QRadioButton("Policy");
-			mode_value->setChecked(ini->value("mode_value").toBool());
-			mode_transition_acc->setChecked(ini->value("mode_transition_acc").toBool());
+			mode_s_vn = new QRadioButton("s / vn");
+			mode_target = new QRadioButton("target / target");
+			mode_transition = new QRadioButton("transition / flat");
+			mode_policy = new QRadioButton("policy");
+			mode_s_vn->setChecked(ini->value("mode_s_vn").toBool());
+			mode_target->setChecked(ini->value("mode_target").toBool());
+			mode_transition->setChecked(ini->value("mode_transition").toBool());
 			mode_policy->setChecked(ini->value("mode_policy").toBool());
 			grid->addWidget(box, row, 0, 1, 2);
 			QVBoxLayout* vbox = new QVBoxLayout;
 			box->setLayout(vbox);
-			vbox->addWidget(mode_value);
-			vbox->addWidget(mode_transition_acc);
+			vbox->addWidget(mode_s_vn);
+			vbox->addWidget(mode_target);
+			vbox->addWidget(mode_transition);
 			vbox->addWidget(mode_policy);
 			row++;
 		}
@@ -730,8 +752,9 @@ public:
 	{
 		ini->setValue("xy_range", xy_range->value());
 		ini->setValue("z_range", z_range->value());
-		ini->setValue("mode_value", mode_value->isChecked());
-		ini->setValue("mode_transition_acc", mode_transition_acc->isChecked());
+		ini->setValue("mode_s_vn", mode_s_vn->isChecked());
+		ini->setValue("mode_target", mode_target->isChecked());
+		ini->setValue("mode_transition", mode_transition->isChecked());
 		ini->setValue("mode_policy", mode_policy->isChecked());
 		ini->setValue("xy_axis_n1", axis[0]->value());
 		ini->setValue("xy_axis_n2", axis[1]->value());
@@ -754,7 +777,7 @@ public slots:
 				z_range->value(),
 				axis[0]->value(), axis[1]->value(), axis[2]->value(), axis[3]->value(),
 				timefilter_checkbox->isChecked() ? timefilter_t1->value() : -1, timefilter_t2->value(),
-				mode_transition_acc->isChecked(), mode_policy->isChecked()
+				mode_transition->isChecked(), mode_policy->isChecked(), mode_target->isChecked()
 				);
 			viz_widget->q->actions_reprocess(
 				viz_widget->rect().width(), viz_widget->rect().height(),

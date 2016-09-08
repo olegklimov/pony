@@ -26,13 +26,15 @@ class Transition:
         d2 = Dense(512, activation='relu', W_regularizer=l2(0.001))
         almost_out = d2(d1( merge( [inp_s,clamp(inp_a)], mode='concat' ) ))
         out_s = Dense(xp.STATE_DIM, W_regularizer=l2(0.001))
-        out_r = Dense(1)
+        out_r = Dense(1, W_regularizer=l2(0.001))
         out_tensor_s = out_s(almost_out)
         out_tensor_r = out_r(almost_out)
 
         self.model = Model( input=[inp_s, inp_a], output=[out_tensor_s, out_tensor_r] )
         from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
-        self.model.compile(loss='mae', optimizer=Adam(lr=0.0005, beta_2=0.9999))
+        self.model.compile(loss='mse', optimizer=Adam(lr=0.0001, beta_2=0.999, epsilon=1e-5))
+        #self.model.compile(loss='mse', optimizer=Adamax())
+        #self.model.compile(loss='mae', optimizer=Adam(lr=0.00005, beta_2=0.999))
 
     def learn_iteration(self, buf, dry_run):
         BATCH = len(buf)
@@ -42,6 +44,7 @@ class Transition:
         target_r = np.zeros( (BATCH, 1) )
         sample_weight = np.ones( (BATCH,) )
 
+        good, bad = 0, 0
         for i,x in enumerate(buf):
             inp_s[i] = x.s 
             inp_a[i] = x.a
@@ -51,12 +54,19 @@ class Transition:
                 # Don't try to predict wins and crashes: it's a physical model,
                 # it only can approximate potential field r = V(s') - V(s)
                 sample_weight[i] = 0.0
+            if np.linalg.norm( target_s[i] ) > 1.0:
+                # Don't try to approximate when contact with the ground changes, it is outliers.
+                sample_weight[i] = 0.0
+                bad += 1
+            else:
+                good += 1
+        #print( "%i/%i" % (bad, (good+bad)) )
 
         with self.model_mutex:
             test_s, test_r = self.model.predict([inp_s, inp_a])
         with xp.replay_mutex:
             for i,x in enumerate(buf):
-                xp.export_viz.state_trans[x.viz_n] = test_s[i] + x.s
+                xp.export_viz.ttest[x.viz_n] = test_s[i] + x.s
 
         with self.model_mutex:
             if dry_run:

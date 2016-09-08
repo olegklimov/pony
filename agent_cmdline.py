@@ -130,7 +130,7 @@ def close():
     human_wants_quit = True
 
 sn = env.reset()
-alg.reset(False)
+alg.reset(True)
 env.render()
 env.viewer.window.on_key_press = key_press
 env.viewer.window.on_key_release = key_release
@@ -138,6 +138,7 @@ env.viewer.window.on_close = close
 global_step_counter = 0
 
 # before starting a thread, check if everything works in main thread.
+alg.load_something_useful_on_start(dir + "/_weights")
 alg.run_single_learn_iteration(False)
 alg.advantage_visualize(sn, env.action_space.sample(), env.action_space)
 
@@ -196,12 +197,12 @@ def rollout():
 
     if track and human_records_xp:
         new_xp.extend(track)
-        alg.reset(True)
         with xp.replay_mutex:
             xp.replay.extend(track)
             xp.shuffle()
             xp.export_viz_open(dir, "r+")
             print("now replay buffer have %i samples" % len(xp.replay))
+            alg.reset(True)
         for i in range(200):
             env.viewer.window.dispatch_events()
             if not alg.useful_to_think_more(): break
@@ -226,4 +227,3 @@ while not human_wants_quit:
 alg.quit = True
 learn_thread.join()
 #pyglet.app.run()
-

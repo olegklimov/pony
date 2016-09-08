@@ -39,8 +39,7 @@ class XPoint:
         self.jpeg = jpeg
 
         self.v = 0
-        self.nv = 0
-        self.density = 0
+        self.vn = 0
 
     def to_jsonable(self):
         j = { "s": self.s.tolist(), "sn": self.sn.tolist(), "a": self.a.tolist(), "r": self.r, "step": self.step }
@@ -77,24 +76,25 @@ class ExportViz:
     def reopen(self, dir, N, STATE_DIM, mode):
         assert STATE_DIM>0
         assert ACTION_DIM>0
-        self.N        = np.memmap(dir+"/N", mode=mode, shape=(1), dtype=np.int32)
+        self.N  = np.memmap(dir+"/mmap_N", mode=mode, shape=(1), dtype=np.int32)
         more_N = N + 1000
-        self.state1   = np.memmap(dir+"/state1",   mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
-        self.state2   = np.memmap(dir+"/state2",   mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
-        self.state_trans  = np.memmap(dir+"/state_transition", mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
-        self.state_policy = np.memmap(dir+"/state_policy",     mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
-        self.Vstable1 = np.memmap(dir+"/Vstable1", mode=mode, shape=(more_N,), dtype=np.float32)
-        self.Vstable2 = np.memmap(dir+"/Vstable2", mode=mode, shape=(more_N,), dtype=np.float32)
-        self.Vonline1 = np.memmap(dir+"/Vonline1", mode=mode, shape=(more_N,), dtype=np.float32)
-        self.Vtarget  = np.memmap(dir+"/Vtarget",  mode=mode, shape=(more_N,), dtype=np.float32)
-        self.Vpolicy  = np.memmap(dir+"/Vpolicy",  mode=mode, shape=(more_N,), dtype=np.float32)
-        self.step     = np.memmap(dir+"/step",     mode=mode, shape=(more_N,), dtype=np.int32)
-        self.episode  = np.memmap(dir+"/episode",  mode=mode, shape=(more_N,), dtype=np.int32)
-        self.jpeg     = np.memmap(dir+"/jpegmap",  mode=mode, shape=(more_N*16,), dtype=np.int8)
-        self.action_online = np.memmap(dir+"/action_online", mode=mode, shape=(ACTION_DIM,), dtype=np.float32)
-        self.action_stable = np.memmap(dir+"/action_stable", mode=mode, shape=(ACTION_DIM,), dtype=np.float32)
-        self.agraph_online = np.memmap(dir+"/agraph_online", mode=mode, shape=(ACTION_PIXELS*ACTION_DIM,1), dtype=np.float32)
-        self.agraph_stable = np.memmap(dir+"/agraph_stable", mode=mode, shape=(ACTION_PIXELS*ACTION_DIM,1), dtype=np.float32)
+        self.s  = np.memmap(dir+"/mmap_s",  mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
+        self.v  = np.memmap(dir+"/mmap_v",  mode=mode, shape=(more_N,), dtype=np.float32)
+        self.sn = np.memmap(dir+"/mmap_sn", mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
+        self.vn = np.memmap(dir+"/mmap_vn", mode=mode, shape=(more_N,), dtype=np.float32)
+        self.sp = np.memmap(dir+"/mmap_sp", mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
+        self.vp = np.memmap(dir+"/mmap_vp", mode=mode, shape=(more_N,), dtype=np.float32)
+        self.st = np.memmap(dir+"/mmap_st", mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
+        self.vt = np.memmap(dir+"/mmap_vt", mode=mode, shape=(more_N,), dtype=np.float32)
+        self.ttest    = np.memmap(dir+"/mmap_ttest",    mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
+        self.step     = np.memmap(dir+"/mmap_step",     mode=mode, shape=(more_N,), dtype=np.int32)
+        self.episode  = np.memmap(dir+"/mmap_episode",  mode=mode, shape=(more_N,), dtype=np.int32)
+        self.jpeg     = np.memmap(dir+"/mmap_jpegmap",  mode=mode, shape=(more_N*16,), dtype=np.int8)
+        self.flags    = np.memmap(dir+"/mmap_flags",    mode=mode, shape=(more_N,), dtype=np.int32)
+        self.action_online = np.memmap(dir+"/mmap_action_online", mode=mode, shape=(ACTION_DIM,), dtype=np.float32)
+        self.action_stable = np.memmap(dir+"/mmap_action_stable", mode=mode, shape=(ACTION_DIM,), dtype=np.float32)
+        self.agraph_online = np.memmap(dir+"/mmap_agraph_online", mode=mode, shape=(ACTION_PIXELS*ACTION_DIM,1), dtype=np.float32)
+        self.agraph_stable = np.memmap(dir+"/mmap_agraph_stable", mode=mode, shape=(ACTION_PIXELS*ACTION_DIM,1), dtype=np.float32)
 
 export_viz = None
 
@@ -110,15 +110,14 @@ def export_viz_open(dir, mode="w+"):
     v.N[0] = N
     for x in replay:
         if x.v: continue
-        export_viz.state1[x.viz_n] = x.s
-        export_viz.state2[x.viz_n] = x.sn
-        export_viz.state_trans[x.viz_n]  = x.s
-        export_viz.state_policy[x.viz_n] = x.sn
-        export_viz.Vtarget[x.viz_n]  = x.r
-        export_viz.Vonline1[x.viz_n] = x.r
-        export_viz.Vstable1[x.viz_n] = x.r
-        export_viz.Vstable2[x.viz_n] = x.r
-        export_viz.Vpolicy[x.viz_n]  = x.r
+        export_viz.s[x.viz_n]  = x.s
+        export_viz.v[x.viz_n]  = x.r
+        export_viz.sn[x.viz_n] = x.sn
+        export_viz.vn[x.viz_n] = x.r
+        export_viz.sp[x.viz_n] = x.sn
+        export_viz.vp[x.viz_n] = x.r
+        export_viz.st[x.viz_n] = x.sn
+        export_viz.vt[x.viz_n] = x.r
         export_viz.step[x.viz_n] = x.step
         if x.jpeg:
             import os

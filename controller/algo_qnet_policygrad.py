@@ -14,6 +14,7 @@ from keras.engine import Layer
 from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
 from keras.constraints import nonneg
 from threading import Lock
+from sklearn.neighbors import BallTree
 
 CRASH_OR_WIN_THRESHOLD = 50   # pin value function if last state is win or crash, ignore bootstrap
 
@@ -99,17 +100,16 @@ class QNetPolicygrad(algo.Algorithm):
 
         self.countdown = 0
         self.demo_policy_tolearn = 0  #2000
-        self.new_xp_counter = 5
         self.use_random_policy = True
 
     def _learn_demo_policy_supervised(self, buf, dry_run):
-        batch_s = np.zeros( (self.BATCH, xp.STATE_DIM) )
+        s = np.zeros( (self.BATCH, xp.STATE_DIM) )
         batch_a = np.zeros( (self.BATCH, xp.ACTION_DIM) )
         for i,x in enumerate(buf):
-            batch_s[i] = x.s
+            s[i] = x.s
             batch_a[i] = x.a
         with self.stable_mutex:
-            loss = self.online_policy_action.train_on_batch( batch_s, batch_a )
+            loss = self.online_policy_action.train_on_batch( s, batch_a )
             if self.demo_policy_tolearn==0:
                 w = self.online_policy_action.get_weights()
                 self.stable_policy_action.set_weights(w)
@@ -136,35 +136,29 @@ class QNetPolicygrad(algo.Algorithm):
         BATCH = len(buf)
         assert(self.BATCH==BATCH)
 
-        batch_s = np.zeros( (BATCH, xp.STATE_DIM) )
-        batch_a = np.zeros( (BATCH, xp.ACTION_DIM) )
-        batch_t = np.zeros( (BATCH, 1) )
+        ## go ##
+
+        STATE_DIM = xp.STATE_DIM
+        s  = np.zeros( (BATCH, STATE_DIM) )
+        a  = np.zeros( (BATCH, xp.ACTION_DIM) )
+        sn = np.zeros( (BATCH, STATE_DIM) )
+        vt = np.zeros( (BATCH, 1) )
 
         for i,x in enumerate(buf):
-            batch_s[i] = x.sn
+            s[i] = x.s
+            a[i] = x.a
+            sn[i] = x.sn
         with self.stable_mutex:
-            _, nv = self.stable_policy_value.predict(batch_s)
-            _, pv = self.online_policy_value.predict(batch_s)
-            pa = self.online_policy_action.predict(batch_s)
-            ps, pr = self.trans.predict(batch_s, pa)
-            #nv2_a = self.stable_policy_action.predict(batch_s)
-            #nv2_v = self.Q_stable.predict( [batch_s, nv2_a] )
+            v = self.Q_stable.predict( [s,a] )
+            an, vn  = self.online_policy_value.predict(sn)    # action at sn
+            apolicy = self.online_policy_action.predict(s)    # action at s
+            sp, rp  = self.trans.predict(s, apolicy)          # predicted state and reward from transition model
+            ap, vp  = self.online_policy_value.predict(sp)    # action at sp
         for i,x in enumerate(buf):
-            x.nv = nv[i][0]
-            x.pv = pv[i][0]
-            x.pa = pa[i]
-            x.ps = ps[i]
+            x.v  = v[i][0]
+            x.vn = vn[i][0]
 
-        # stable v
-        for i,x in enumerate(buf):
-            batch_s[i] = x.s
-            batch_a[i] = x.a
-        with self.stable_mutex:
-            stable_v = self.Q_stable.predict( [batch_s, batch_a] )
-        for i,x in enumerate(buf):
-            x.v = stable_v[i][0]
-
-        # WIRES
+        # WIRES, good only for deterministic environments
         if self.countdown==0:
             N = len(xp.replay)
             self.N = N
@@ -180,47 +174,75 @@ class QNetPolicygrad(algo.Algorithm):
                 x.episode = episode
                 v = v*self.GAMMA + x.r
                 x.wires_v = v
+                # may use x.v
                 if x.r>0: total_reward += x.r
             self.countdown = 20
         else:
             self.countdown -= 1
 
-        # Viz
+        # target and viz
+        X = np.zeros( (1,STATE_DIM+xp.ACTION_DIM,)  )
         with xp.replay_mutex:
             for i,x in enumerate(buf):
-                if not (x.terminal and np.abs(x.r) > CRASH_OR_WIN_THRESHOLD):    # not crash
-                    bellman = x.nv*self.GAMMA + x.r
-                    x.target_v = max(x.wires_v, bellman)
-                else:
+                # Can we trust vn = Q(sn, an) ?
+                X[0][:STATE_DIM] = x.sn
+                X[0][STATE_DIM:] = an[i]
+                count = self.neighbours.query_radius(X, r=0.1, count_only=True)
+                #print count
+                trust = count > 3
+                if x.terminal or np.abs(x.r) > CRASH_OR_WIN_THRESHOLD:
+                    # crash or win
                     x.target_v = x.r
-                batch_t[i,0] = x.target_v
-                xp.export_viz.state1[x.viz_n] = x.s
-                xp.export_viz.state2[x.viz_n] = x.sn
-                xp.export_viz.Vstable1[x.viz_n] = x.v
-                xp.export_viz.Vstable2[x.viz_n] = x.target_v
-                xp.export_viz.Vonline1[x.viz_n] = 0
-                xp.export_viz.Vtarget[x.viz_n]  = 0
+                elif not trust:
+                    # use predicted
+                    a[i] = apolicy[i]
+                    x.target_v = max(x.wires_v, rp[i] + self.GAMMA*vp[i])
+                else:
+                    x.target_v = max(x.wires_v, x.r   + self.GAMMA*x.vn)
+                vt[i,0] = x.target_v
+                xp.export_viz.flags[x.viz_n] = 0 if trust else 1
+                xp.export_viz.s[x.viz_n]  = x.s
+                xp.export_viz.v[x.viz_n]  = x.v
+                xp.export_viz.sn[x.viz_n] = x.sn
+                xp.export_viz.vn[x.viz_n] = x.vn
+                xp.export_viz.sp[x.viz_n] = sp[i]
+                xp.export_viz.vp[x.viz_n] = vp[i]
+                xp.export_viz.st[x.viz_n] = sn[i]
+                xp.export_viz.vt[x.viz_n] = vt[i]
                 xp.export_viz.step[x.viz_n] = x.step
                 xp.export_viz.episode[x.viz_n] = x.episode
-                xp.export_viz.state_policy[x.viz_n] = x.ps
-                xp.export_viz.Vpolicy[x.viz_n] = x.pv
+
+                # s / vn            -- clear
+                # target / target   -- used for learning xp or transition / target
+                # transition / flat -- test transition of xp action / flat
+                # policy            -- see transition viz of policy / expected value of policy
+
+                # need:
+                # s
+                # v
+                # sn                                          -- sn from experience
+                # vn
+                # sp                                          -- predicted using policy action
+                # vp
+                # st = (sn or sp)                             -- target
+                # vt = (rxp+GAMMA*Q(xp) or rp+GAMMA*Q(sp))
 
         xp.export_viz.N[0] = self.N
 
         trans_loss = self.trans.learn_iteration(buf, dry_run)
         if dry_run:
             with self.online_mutex:
-                loss = self.Q_online.test_on_batch( [batch_s, batch_a], batch_t )
+                loss = self.Q_online.test_on_batch( [s, a], vt )
             #print("WIRES (test) %0.5f" % loss)
         else:
             with self.online_mutex:
-                wires_loss = self.Q_online.train_on_batch( [batch_s, batch_a], batch_t )
-            #test1 = self.Q_stable.test_on_batch( [batch_s, batch_a], batch_t )
+                wires_loss = self.Q_online.train_on_batch( [s, a], vt )
+            #test1 = self.Q_stable.test_on_batch( [s, a], vt )
             with self.stable_mutex:
-                stable_policy_a = self.stable_policy_action.predict(batch_s)
-                policy_loss = self.online_policy_value.train_on_batch(batch_s, [stable_policy_a,batch_t])  # batch_t target not used, see only_up()
-            #test2 = self.Q_stable.test_on_batch( [batch_s, batch_a], batch_t )
-            #print("test1", test1, "test2", test2)
+                stable_policy_a = self.stable_policy_action.predict(s)
+                policy_loss = self.online_policy_value.train_on_batch(s, [stable_policy_a,vt])  # vt target not used, see only_up()
+            #test2 = self.Q_stable.test_on_batch( [s, a], vt )
+            #print("test1", test1, "test2", test2)  # test2 must be equal to test1, otherwise we're learning not only policy, but Q too.
             #print("WIRES %0.4f POLICY %0.4f TRANS %0.4f" % (wires_loss, policy_loss, trans_loss))
             with self.online_mutex:
                 self._slowly_transfer_weights_to_stable_network(self.Q_stable, self.Q_online, self.TAU)
@@ -237,16 +259,31 @@ class QNetPolicygrad(algo.Algorithm):
         self.trans.model.load_weights(fn + "_trans.h5")
         self.demo_policy_tolearn = 0
 
+    def load_something_useful_on_start(self, fn):
+        self.trans.model.load_weights(fn + "_trans.h5")
+
     def _reset(self, new_experience):
-        if new_experience:
-            if self.new_xp_counter > 0:
-                self.new_xp_counter -= 1
-                return
+        if new_experience: # have xp.replay_mutex locked if true
             #print "POLICY TO STABLE"
             with self.online_mutex:
                 ws_online = self.online_policy_action.get_weights()
             with self.stable_mutex:
                 self.stable_policy_action.set_weights(ws_online)
+            self._neighbours_reset()
+
+    def _neighbours_reset(self):
+        "xp.replay_mutex must be locked"
+        count = len(xp.replay)
+        print "BALL TREE %i POINTS" % count
+        STATE_DIM = xp.STATE_DIM
+        ACTION_DIM = xp.ACTION_DIM
+        X = np.zeros( (count, STATE_DIM+ACTION_DIM)  )
+        for i in range(count):
+            X[i][:STATE_DIM] = xp.replay[i].s
+            X[i][STATE_DIM:] = xp.replay[i].a
+        print "--"
+        self.neighbours = BallTree(X)
+        print "/BALL TREE"
 
     def _control(self, s, action_space):
         if self.use_random_policy:

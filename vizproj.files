@@ -1,2 +1,7 @@
 viz/miniutils.cpp
 viz/viz.cpp
+controller/algo_qnet_policygrad.py
+controller/transition_model.py
+controller/xp.py
+controller/algo.py
+agent_cmdline.py
