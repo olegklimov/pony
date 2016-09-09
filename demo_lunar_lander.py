@@ -11,7 +11,7 @@ class DemoLunarLander(algo.Algorithm):
         pass
     def _load(self, fn):
         pass
-    def _reset(self):
+    def _reset(self, new_xp):
         pass
     def control(self, s, action_space):
         self.continuous = True

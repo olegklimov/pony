@@ -232,12 +232,17 @@ struct Quiver {
 			fill_color(color2, vcolor.data()+6*cursor+3);
 
 			if (flags[c] & 1) {
-				vcolor[6*cursor+3] = 0.2;
-				vcolor[6*cursor+4] = 0.2;
-				vcolor[6*cursor+5] = 0.2;
-				//vcolor[6*cursor+3] += 0.5;
-				//vcolor[6*cursor+4] += 0.5;
-				//vcolor[6*cursor+5] += 0.5;
+				vcolor[6*cursor+3] = 0.1;
+				vcolor[6*cursor+4] = 0.1;
+				vcolor[6*cursor+5] = 0.1;
+			}
+			if (flags[c] & 2) {
+				vcolor[6*cursor+0] = 1.0;
+				vcolor[6*cursor+1] = 1.0;
+				vcolor[6*cursor+2] = 1.0;
+				vcolor[6*cursor+3] = 1.0;
+				vcolor[6*cursor+4] = 1.0;
+				vcolor[6*cursor+5] = 1.0;
 			}
 
 			cursor++;

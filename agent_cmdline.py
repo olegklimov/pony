@@ -7,6 +7,7 @@ theano.config.exception_verbosity = 'high'
 import numpy as np
 import scipy.misc
 import gym
+from gym.wrappers import SkipWrapper
 
 import controller.xp as xp
 
@@ -23,6 +24,7 @@ parser.add_argument("--loadxp", nargs='+', help="load experience from environmen
 parser.add_argument("--savexp", nargs=1, help="file and jpeg dir name prefix to save experience (J, Ctrl+S)")
 parser.add_argument("--viz-only", help="export visualisation arrays and quit (default)", action="store_true")
 parser.add_argument("--learn", nargs=1, help="learn and quit")  #, action="store_true")
+parser.add_argument("--frameskip", nargs=1, help="frame skipping", type=int, default=1)
 parser.add_argument("--control-from-iteration", help="learn and quit", type=int, default=-1)
 args = parser.parse_args()
 
@@ -49,6 +51,13 @@ if args.loadxp:
 print
 
 env = gym.make(env_type)
+args.frameskip = args.frameskip[0]
+if args.frameskip > 1:
+    wrap = SkipWrapper(args.frameskip)
+    env = wrap(env)
+    #print env.metadata
+    #print env.env.metadata
+
 if xp.STATE_DIM==0:
     xp.init_from_env(env)
 
@@ -132,6 +141,7 @@ def close():
 sn = env.reset()
 alg.reset(True)
 env.render()
+if "env" in env.__dict__: env.viewer = env.env.viewer
 env.viewer.window.on_key_press = key_press
 env.viewer.window.on_key_release = key_release
 env.viewer.window.on_close = close
@@ -168,7 +178,7 @@ def rollout():
         alg.advantage_visualize(s, a, env.action_space)
 
         sn, r, done, info = env.step(a)
-        if ts > env.spec.timestep_limit:
+        if ts > env.spec.timestep_limit / args.frameskip:
             done = True
             print("time limit hit")
         ts += 1

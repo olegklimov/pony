@@ -17,6 +17,7 @@ from threading import Lock
 from sklearn.neighbors import BallTree
 
 CRASH_OR_WIN_THRESHOLD = 50   # pin value function if last state is win or crash, ignore bootstrap
+ACTION_DISPERSE = 0.1
 
 def clamp_minus_one_plus_one(x):
     return K.minimum( +1, K.maximum(x, -1) )  # as opposed to min/max, minimum/maximum is element-wise operations
@@ -32,7 +33,7 @@ def gaussian_of_x_shape(input_shape):
     return tuple(shape)
 
 class QNetPolicygrad(algo.Algorithm):
-    def __init__(self, GAMMA=0.995, TAU=0.01, BATCH=100):
+    def __init__(self, GAMMA=0.99, TAU=0.01, BATCH=100):
         algo.Algorithm.__init__(self, BATCH)
         self.GAMMA = GAMMA
         self.TAU = TAU
@@ -46,13 +47,13 @@ class QNetPolicygrad(algo.Algorithm):
             inp_s = Input( shape=(xp.STATE_DIM,),  name="inp_s")  # batch (None, ...) added automatically
             inp_a = Input( shape=(xp.ACTION_DIM,), name="inp_a")
 
-            a1 = Dense(320, activation='relu', W_regularizer=l2(0.01))
-            a2 = Dense(320, activation='relu', W_regularizer=l2(0.01))
+            a1 = Dense(640, activation='relu', W_regularizer=l2(0.01))
+            a2 = Dense(640, activation='relu', W_regularizer=l2(0.01))
             #a3 = Dense(320, activation='relu', W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01))
-            a_out = Dense(1, W_regularizer=l2(0.01), W_constraint=nonneg())
+            a_out = Dense(1, W_regularizer=l2(0.01)) #W_constraint=nonneg())
 
-            v1 = Dense(320, activation='relu', W_regularizer=l2(0.01))
-            v2 = Dense(320, activation='relu', W_regularizer=l2(0.01))
+            v1 = Dense(640, activation='relu', W_regularizer=l2(0.01))
+            v2 = Dense(640, activation='relu', W_regularizer=l2(0.01))
             v_out = Dense(1, W_regularizer=l2(0.01))
 
             gaussian = Lambda(gaussian_of_x, output_shape=gaussian_of_x_shape)
@@ -60,10 +61,11 @@ class QNetPolicygrad(algo.Algorithm):
                 a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) ),
                 gaussian(inp_a)
                 ], mode='mul')
-            out_tensor = merge( [
-                parabolized_action,
-                v_out( v2(v1(inp_s)) )
-                ], mode='sum' )
+            out_tensor = a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) )
+            #out_tensor = merge( [
+            #    parabolized_action,
+            #    v_out( v2(v1(inp_s)) )
+            #    ], mode='sum' )
 
             Qmod = Model( input=[inp_s,inp_a], output=out_tensor )
             Qmod.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
@@ -143,6 +145,7 @@ class QNetPolicygrad(algo.Algorithm):
         sn = np.zeros( (BATCH, STATE_DIM) )
         st = np.zeros( (BATCH, STATE_DIM) )
         vt = np.zeros( (BATCH, 1) )
+        sample_weight = np.ones( (BATCH,) )
 
         for i,x in enumerate(buf):
             s[i] = x.s
@@ -152,6 +155,8 @@ class QNetPolicygrad(algo.Algorithm):
             v = self.Q_stable.predict( [s,a] )
             an, vn  = self.online_policy_value.predict(sn)    # action at sn
             apolicy = self.online_policy_action.predict(s)    # action at s
+            #apolicy += np.random.uniform(low=-ACTION_DISPERSE, high=ACTION_DISPERSE, size=(BATCH,xp.ACTION_DIM))
+            #apolicy  = np.clip(apolicy, -1, +1)
             sp, rp  = self.trans.predict(s, apolicy)          # predicted state and reward from transition model
             ap, vp  = self.online_policy_value.predict(sp)    # action at sp
         for i,x in enumerate(buf):
@@ -163,18 +168,18 @@ class QNetPolicygrad(algo.Algorithm):
             N = len(xp.replay)
             self.N = N
             total_reward = 0
-            v = 0
+            value = 0
             episode = 0
             for i in range(N-1,-1,-1):
                 x = xp.replay[i]
                 if x.terminal:
-                    v = 0
+                    value = 0
                     total_reward = 0
                     episode += 1
                 x.episode = episode
-                v = v*self.GAMMA + x.r
-                x.wires_v = v
-                # may use x.v
+                value = value*self.GAMMA + x.r
+                #value = max(value, x.vn)
+                x.wires_v = value
                 if x.r>0: total_reward += x.r
             self.countdown = 20
         else:
@@ -188,30 +193,32 @@ class QNetPolicygrad(algo.Algorithm):
                 X[0][:STATE_DIM] = x.sn
                 X[0][STATE_DIM:] = an[i]
                 count = self.neighbours.query_radius(X, r=0.1, count_only=True)[0]
-                #print count
-                trust = np.random.randint(0, 10) > 5
-                #print count, trust
+                physics = np.random.randint(count+0, count+10) < 5
+                stuck   = np.linalg.norm(x.s - x.sn) < 0.01
+                #print "count=%i, physics=%s, stuck=%i" % (count, physics, stuck)
                 if x.terminal and np.abs(x.r) > CRASH_OR_WIN_THRESHOLD:
                     # crash or win
-                    a[i] = apolicy[i]  # doesn't matter, but give it harder task
-                    x.target_v = x.r
                     st[i] = s[i]
-                elif not trust:
-                    # use predicted
-                    a[i]  = apolicy[i]
+                    a[i]  = apolicy[i]  # doesn't matter much, but give it harder task
+                    x.target_v = x.r    # nail final point
+                    stuck = False
+                    sample_weight[i] = 10.0
+                elif physics or stuck:
+                    # use physics model, predicted sp, rp
                     st[i] = sp[i]
-                    #a[i] += np.random.uniform(low=-rand, high=+rand, size=(2,))
-                    #a[i]  = np.clip(a, -1, +1)
+                    a[i]  = apolicy[i]
                     x.target_v = max(x.wires_v, rp[i] + self.GAMMA*vp[i])
                 else:
+                    # Q-learning
                     st[i] = sn[i]
                     x.target_v = max(x.wires_v, x.r   + self.GAMMA*x.vn)
 
-                #if explosion_containment and count<2:
-                #    x.target_v = min( x.target_v, x.v + 0.5 )  # FIXME 0.5
-
                 vt[i,0] = x.target_v
-                xp.export_viz.flags[x.viz_n] = 0 if trust else 1
+                f = 0
+                if physics: f |= 1
+                if stuck:   f |= 2
+                if stuck:   sample_weight[i] = 0.0
+                xp.export_viz.flags[x.viz_n] = f
                 xp.export_viz.s[x.viz_n]  = x.s
                 xp.export_viz.v[x.viz_n]  = x.v
                 xp.export_viz.sn[x.viz_n] = x.sn
@@ -247,7 +254,7 @@ class QNetPolicygrad(algo.Algorithm):
             #print("WIRES (test) %0.5f" % loss)
         else:
             with self.online_mutex:
-                wires_loss = self.Q_online.train_on_batch( [s, a], vt )
+                wires_loss = self.Q_online.train_on_batch( [s, a], vt, sample_weight=sample_weight )
             #test1 = self.Q_stable.test_on_batch( [s, a], vt )
             with self.stable_mutex:
                 stable_policy_a = self.stable_policy_action.predict(s)
@@ -285,16 +292,17 @@ class QNetPolicygrad(algo.Algorithm):
     def _neighbours_reset(self):
         "xp.replay_mutex must be locked"
         count = len(xp.replay)
-        print "BALL TREE %i POINTS" % count
-        STATE_DIM = xp.STATE_DIM
-        ACTION_DIM = xp.ACTION_DIM
-        X = np.zeros( (count, STATE_DIM+ACTION_DIM)  )
-        for i in range(count):
-            X[i][:STATE_DIM] = xp.replay[i].s
-            X[i][STATE_DIM:] = xp.replay[i].a
-        print "--"
-        self.neighbours = BallTree(X)
-        print "/BALL TREE"
+        if count > 0:
+            print "BALL TREE %i POINTS" % count
+            STATE_DIM = xp.STATE_DIM
+            ACTION_DIM = xp.ACTION_DIM
+            X = np.zeros( (count, STATE_DIM+ACTION_DIM)  )
+            for i in range(count):
+                X[i][:STATE_DIM] = xp.replay[i].s
+                X[i][STATE_DIM:] = xp.replay[i].a
+            print "--"
+            self.neighbours = BallTree(X)
+            print "/BALL TREE"
 
     def _control(self, s, action_space):
         if self.use_random_policy:
@@ -309,10 +317,12 @@ class QNetPolicygrad(algo.Algorithm):
                     print("heuristic over")
                 ah  = w.heuristic(self, s)
                 return ah
-        if 1:
+        if 0:
             import gym.envs.box2d.lunar_lander as ll
             self.continuous = True
             a = ll.heuristic(self, s)
+        a += np.random.uniform(low=-ACTION_DISPERSE, high=ACTION_DISPERSE, size=(xp.ACTION_DIM,))
+        a  = np.clip(a, -1, +1)
         return a
 
     def advantage_visualize(self, s, a, action_space):

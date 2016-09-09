@@ -46,3 +46,6 @@ class Algorithm:
 
     def advantage_visualize(self, s, a, action_space):
         pass
+
+    def load_something_useful_on_start(self, fn):
+        pass
