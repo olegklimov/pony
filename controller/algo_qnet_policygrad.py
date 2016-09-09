@@ -17,7 +17,7 @@ from threading import Lock
 from sklearn.neighbors import BallTree
 
 CRASH_OR_WIN_THRESHOLD = 50   # pin value function if last state is win or crash, ignore bootstrap
-ACTION_DISPERSE = 0.1
+ACTION_DISPERSE = 0.3
 
 def clamp_minus_one_plus_one(x):
     return K.minimum( +1, K.maximum(x, -1) )  # as opposed to min/max, minimum/maximum is element-wise operations
@@ -85,9 +85,9 @@ class QNetPolicygrad(algo.Algorithm):
         def policy_net(inp_s):
             d1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
             d2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            d3 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            #d3 = Dense(320, activation='relu', W_regularizer=l2(0.001))
             out = Dense(xp.ACTION_DIM)
-            out_action = clamp(out( d3(d2(d1(inp_s))) ))
+            out_action = clamp(out( d2(d1(inp_s)) ))
             value_of_s = self.Q_stable( [inp_s,out_action] )
             action = Model( input=[inp_s], output=out_action )
             action.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))  # really optimal values here
@@ -132,6 +132,8 @@ class QNetPolicygrad(algo.Algorithm):
                 print("have %i random samples, start learning" % N)
             else:
                 self.demo_policy_tolearn = 0  # random action taken, supervised demo learning not applicable
+                import time
+                time.sleep(0.1)
                 return
 
         BATCH = len(buf)
@@ -282,12 +284,12 @@ class QNetPolicygrad(algo.Algorithm):
 
     def _reset(self, new_experience):
         if new_experience: # have xp.replay_mutex locked if true
-            if self.pause: return
-            #print "POLICY TO STABLE"
-            with self.online_mutex:
-                ws_online = self.online_policy_action.get_weights()
-            with self.stable_mutex:
-                self.stable_policy_action.set_weights(ws_online)
+            if not self.pause:
+                #print "POLICY TO STABLE"
+                with self.online_mutex:
+                    ws_online = self.online_policy_action.get_weights()
+                with self.stable_mutex:
+                    self.stable_policy_action.set_weights(ws_online)
             self._neighbours_reset()
 
     def _neighbours_reset(self):
@@ -310,25 +312,10 @@ class QNetPolicygrad(algo.Algorithm):
             return self.stable_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
         if self.use_random_policy:
             return action_space.sample()
+
         with self.stable_mutex:
             a = self.online_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
-        if 0:
-            import gym.envs.box2d.bipedal_walker as w
-            if self.heuristic_timeout > 0:
-                self.heuristic_timeout -= 1
-                if self.heuristic_timeout==0:
-                    print("heuristic over")
-                ah  = w.heuristic(self, s)
-                return ah
-        if 0:
-            import gym.envs.box2d.lunar_lander as ll
-            self.continuous = True
-            a = ll.heuristic(self, s)
-        a += np.random.uniform(low=-ACTION_DISPERSE, high=ACTION_DISPERSE, size=(xp.ACTION_DIM,))
-        a  = np.clip(a, -1, +1)
-        return a
 
-    def advantage_visualize(self, s, a, action_space):
         PIXELS = xp.ACTION_PIXELS
         batch_s = np.zeros( (PIXELS*xp.ACTION_DIM, xp.STATE_DIM) )
         batch_a = np.zeros( (PIXELS*xp.ACTION_DIM, xp.ACTION_DIM) )
@@ -347,6 +334,18 @@ class QNetPolicygrad(algo.Algorithm):
         xp.export_viz.action_stable[:] = ast
         xp.export_viz.agraph_online[:] = online_v
         xp.export_viz.agraph_stable[:] = stable_v
+
+        if np.random.randint(0,5) == 0:
+            t = np.argmax( online_v )
+            i = t // PIXELS
+            p = t  % PIXELS
+            # np.max( online_v ) == online_v[i*PIXELS + p]
+            a = batch_a[i*PIXELS + p]
+        else:
+            a += np.random.normal(scale=ACTION_DISPERSE, size=(xp.ACTION_DIM,))
+            a  = np.clip(a, -1, +1)
+
+        return a
 
     def _slowly_transfer_weights_to_stable_network(self, stable, online, TAU):
         ws_online = online.get_weights()

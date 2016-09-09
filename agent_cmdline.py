@@ -150,7 +150,7 @@ global_step_counter = 0
 # before starting a thread, check if everything works in main thread.
 alg.load_something_useful_on_start(dir + "/_weights")
 alg.run_single_learn_iteration(False)
-alg.advantage_visualize(sn, env.action_space.sample(), env.action_space)
+alg.control(sn, env.action_space)
 
 from threading import Thread
 learn_thread = Thread(target=alg.learn_thread_func)
@@ -170,12 +170,10 @@ def rollout():
             env.viewer.window.dispatch_events()
             time.sleep(0.2)
             a = alg.control(s, env.action_space)
-            alg.advantage_visualize(s, a, env.action_space)
             if human_single_run > 0: break
         if human_wants_quit: break
 
         a = alg.control(s, env.action_space)
-        alg.advantage_visualize(s, a, env.action_space)
 
         sn, r, done, info = env.step(a)
         if ts > env.spec.timestep_limit / args.frameskip:
