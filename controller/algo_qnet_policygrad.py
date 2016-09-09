@@ -46,15 +46,14 @@ class QNetPolicygrad(algo.Algorithm):
             inp_s = Input( shape=(xp.STATE_DIM,),  name="inp_s")  # batch (None, ...) added automatically
             inp_a = Input( shape=(xp.ACTION_DIM,), name="inp_a")
 
-            a1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            a2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            a3 = Dense(320, activation='relu', W_regularizer=l2(0.001), activity_regularizer=activity_l2(0.001))
-            a_out = Dense(1, W_regularizer=l2(0.001), W_constraint=nonneg())
+            a1 = Dense(320, activation='relu', W_regularizer=l2(0.01))
+            a2 = Dense(320, activation='relu', W_regularizer=l2(0.01))
+            #a3 = Dense(320, activation='relu', W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01))
+            a_out = Dense(1, W_regularizer=l2(0.01), W_constraint=nonneg())
 
-            v1 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
-            v2 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
-            v3 = Dense(320, activation='relu', W_regularizer=l2(0.00001))
-            v_out = Dense(1, W_regularizer=l2(0.00001))
+            v1 = Dense(320, activation='relu', W_regularizer=l2(0.01))
+            v2 = Dense(320, activation='relu', W_regularizer=l2(0.01))
+            v_out = Dense(1, W_regularizer=l2(0.01))
 
             gaussian = Lambda(gaussian_of_x, output_shape=gaussian_of_x_shape)
             parabolized_action = merge( [
@@ -68,7 +67,7 @@ class QNetPolicygrad(algo.Algorithm):
 
             Qmod = Model( input=[inp_s,inp_a], output=out_tensor )
             Qmod.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
-            return [v1,v2,v3,v_out, a1,a2,a3,a_out], Qmod
+            return [v1,v2,v_out, a1,a2,a_out], Qmod
 
         stable_trainable, self.Q_stable = qmodel()
         online_trainable, self.Q_online = qmodel()
@@ -142,6 +141,7 @@ class QNetPolicygrad(algo.Algorithm):
         s  = np.zeros( (BATCH, STATE_DIM) )
         a  = np.zeros( (BATCH, xp.ACTION_DIM) )
         sn = np.zeros( (BATCH, STATE_DIM) )
+        st = np.zeros( (BATCH, STATE_DIM) )
         vt = np.zeros( (BATCH, 1) )
 
         for i,x in enumerate(buf):
@@ -187,18 +187,29 @@ class QNetPolicygrad(algo.Algorithm):
                 # Can we trust vn = Q(sn, an) ?
                 X[0][:STATE_DIM] = x.sn
                 X[0][STATE_DIM:] = an[i]
-                count = self.neighbours.query_radius(X, r=0.1, count_only=True)
+                count = self.neighbours.query_radius(X, r=0.1, count_only=True)[0]
                 #print count
-                trust = count > 3
-                if x.terminal or np.abs(x.r) > CRASH_OR_WIN_THRESHOLD:
+                trust = np.random.randint(0, 10) > 5
+                #print count, trust
+                if x.terminal and np.abs(x.r) > CRASH_OR_WIN_THRESHOLD:
                     # crash or win
+                    a[i] = apolicy[i]  # doesn't matter, but give it harder task
                     x.target_v = x.r
+                    st[i] = s[i]
                 elif not trust:
                     # use predicted
-                    a[i] = apolicy[i]
+                    a[i]  = apolicy[i]
+                    st[i] = sp[i]
+                    #a[i] += np.random.uniform(low=-rand, high=+rand, size=(2,))
+                    #a[i]  = np.clip(a, -1, +1)
                     x.target_v = max(x.wires_v, rp[i] + self.GAMMA*vp[i])
                 else:
+                    st[i] = sn[i]
                     x.target_v = max(x.wires_v, x.r   + self.GAMMA*x.vn)
+
+                #if explosion_containment and count<2:
+                #    x.target_v = min( x.target_v, x.v + 0.5 )  # FIXME 0.5
+
                 vt[i,0] = x.target_v
                 xp.export_viz.flags[x.viz_n] = 0 if trust else 1
                 xp.export_viz.s[x.viz_n]  = x.s
@@ -207,7 +218,7 @@ class QNetPolicygrad(algo.Algorithm):
                 xp.export_viz.vn[x.viz_n] = x.vn
                 xp.export_viz.sp[x.viz_n] = sp[i]
                 xp.export_viz.vp[x.viz_n] = vp[i]
-                xp.export_viz.st[x.viz_n] = sn[i]
+                xp.export_viz.st[x.viz_n] = st[i]
                 xp.export_viz.vt[x.viz_n] = vt[i]
                 xp.export_viz.step[x.viz_n] = x.step
                 xp.export_viz.episode[x.viz_n] = x.episode
@@ -298,7 +309,7 @@ class QNetPolicygrad(algo.Algorithm):
                     print("heuristic over")
                 ah  = w.heuristic(self, s)
                 return ah
-        if 0:
+        if 1:
             import gym.envs.box2d.lunar_lander as ll
             self.continuous = True
             a = ll.heuristic(self, s)

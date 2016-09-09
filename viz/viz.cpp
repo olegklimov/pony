@@ -676,7 +676,7 @@ public:
 		int row = 0;
 		grid->addWidget(new QLabel("Z range:"), row, 0);
 		z_range = new QDoubleSpinBox();
-		z_range->setRange(0.1, 1000);
+		z_range->setRange(0.1, 1000000);
 		z_range->setSingleStep(0.1);
 		z_range->setValue(ini->value("z_range").toDouble());
 		grid->addWidget(z_range, row, 1);
