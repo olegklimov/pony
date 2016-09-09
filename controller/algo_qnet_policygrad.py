@@ -282,6 +282,7 @@ class QNetPolicygrad(algo.Algorithm):
 
     def _reset(self, new_experience):
         if new_experience: # have xp.replay_mutex locked if true
+            if self.pause: return
             #print "POLICY TO STABLE"
             with self.online_mutex:
                 ws_online = self.online_policy_action.get_weights()
@@ -305,6 +306,8 @@ class QNetPolicygrad(algo.Algorithm):
             print "/BALL TREE"
 
     def _control(self, s, action_space):
+        if self.pause:
+            return self.stable_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
         if self.use_random_policy:
             return action_space.sample()
         with self.stable_mutex:

@@ -10,10 +10,12 @@ class Algorithm:
         self.save_load_mutex = Lock()
 
     def learn_thread_func(self):
-        while not self.quit:
+        while 1:
             while self.pause and not self.quit and not self.dry_run:
                 import time
                 time.sleep(0.1)
+            if self.quit:
+                break
             with self.save_load_mutex:
                 self.run_single_learn_iteration(self.dry_run)
                 if xp.epoch > 2: self.dry_run = False
