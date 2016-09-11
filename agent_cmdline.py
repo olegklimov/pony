@@ -23,17 +23,20 @@ parser.add_argument("env", metavar="ENV", nargs=1, help="gym environment to work
 parser.add_argument("--loadxp", nargs='+', help="load experience from environment directory")
 parser.add_argument("--savexp", nargs=1, help="file and jpeg dir name prefix to save experience (J, Ctrl+S)")
 parser.add_argument("--viz-only", help="export visualisation arrays and quit (default)", action="store_true")
-parser.add_argument("--learn", nargs=1, help="learn and quit")  #, action="store_true")
+parser.add_argument("--learn", nargs=1, help="learn and quit", default=["QP"])  #, action="store_true")
 parser.add_argument("--frameskip", nargs=1, help="frame skipping", type=int, default=1)
 parser.add_argument("--control-from-iteration", help="learn and quit", type=int, default=-1)
 args = parser.parse_args()
 
 env_type = args.env[0]
 dir = "."+env_type
-prefix = "v1"
-if args.savexp: prefix = args.savexp[0]
+prefix = "_"
+if args.savexp:
+    prefix = args.savexp[0]
+    experiment_name = args.savexp[0]
 print("Environment dir: {}".format(dir))
 print("Prefix: {}".format(prefix))
+print("Experiment: {}".format(experiment_name))
 
 dir_jpeg = dir + "/" + prefix
 try: shutil.rmtree(dir_jpeg)
@@ -84,7 +87,7 @@ elif args.learn[0]=="DLL":
     alg = demo_lunar_lander.DemoLunarLander()
 elif args.learn[0]=="QP":
     import controller.algo_qnet_policygrad as qp
-    alg = qp.QNetPolicygrad()
+    alg = qp.QNetPolicygrad(dir + "/progress", experiment_name)
 else:
     print("unknown algorithm %s" % args.learn[0])
     sys.exit(0)
@@ -192,8 +195,8 @@ def rollout():
             rgb = env.render("rgb_array")
             try: os.mkdir(dir_jpeg)
             except: pass
-            jpeg_name = dir_jpeg + "/{:05}.jpg".format(global_step_counter)
-            scipy.misc.imsave(jpeg_name, rgb)
+            jpeg_name = dir_jpeg + "/{:05}".format(global_step_counter)
+            scipy.misc.imsave(jpeg_name, rgb, format="jpeg")
             pt.jpeg = jpeg_name
 
         track.append(pt)

@@ -25,7 +25,7 @@ class XPoint:
         assert self.s.shape==(STATE_DIM,)
         self.a = np.asarray(a)
         assert self.a.shape==(ACTION_DIM,)
-        self.r = r
+        self.r = float(r)
         self.sn = np.asarray(sn)
         assert self.sn.shape==(STATE_DIM,)
         self.wires_v = 0.0

@@ -74,7 +74,8 @@ class Transition:
             else:
                 loss = self.model.train_on_batch([inp_s, inp_a], [target_s, target_r], sample_weight=[sample_weight,sample_weight])
             #print("transition dry_run=%i %0.5f" % (dry_run, loss))
-        return loss
+        #print self.model.metrics_names  # [loss, state_loss, reward_loss]
+        return float(loss[0])
 
     def predict(self, inp_s, inp_a):
         with self.model_mutex:

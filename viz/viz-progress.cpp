@@ -34,7 +34,8 @@ struct Progress {
 	void save_logs();
 };
 
-boost::shared_ptr<Progress> progress_init(const std::string& task,
+boost::shared_ptr<Progress> progress_init(
+	const std::string& task,
 	const std::string& file_folder,
 	const std::string& hint)
 {

@@ -1,4 +1,5 @@
 #include "viz-qnet3d.h"
+#include "viz-progress.h"
 #include <QtCore/QTimer>
 #include <QtGui/QApplication>
 #include <QtGui/QDoubleSpinBox>
@@ -41,6 +42,7 @@ public:
 	QSpinBox* timefilter_t2;
 
 	QWidget* page_progress;
+	boost::shared_ptr<Progress> progress;
 
 	VizWindow(const std::string& dir):
 		QWidget(0),
@@ -60,7 +62,9 @@ public:
 		tabbed->setTabPosition(QTabWidget::West);
 
 		create_3d_page();
+		create_progress_page();
 		tabbed->addTab(page_3d, "&QNet");
+		tabbed->addTab(page_progress, "&Progress");
 
 		QVBoxLayout* vbox = new QVBoxLayout();
 		setLayout(vbox);
@@ -69,7 +73,7 @@ public:
 
 	void create_progress_page()
 	{
-		page_progress = new QWidget();
+		page_progress = progress_widget_create();
 		QGridLayout* grid = new QGridLayout();
 		page_progress->setLayout(grid);
 	}
@@ -198,6 +202,15 @@ public slots:
 	{
 		viz_widget->reopen(dir);
 	}
+
+	void timeout_progress()
+	{
+//		progress = progress_init(
+//			task,
+//			dir + "/progress",
+//			prefix);
+	}
+
 };
 
 int main(int argc, char *argv[])

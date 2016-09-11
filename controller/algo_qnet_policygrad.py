@@ -33,8 +33,8 @@ def gaussian_of_x_shape(input_shape):
     return tuple(shape)
 
 class QNetPolicygrad(algo.Algorithm):
-    def __init__(self, GAMMA=0.99, TAU=0.01, BATCH=100):
-        algo.Algorithm.__init__(self, BATCH)
+    def __init__(self, dir, experiment_name, GAMMA=0.99, TAU=0.01, BATCH=100):
+        algo.Algorithm.__init__(self, dir, experiment_name, BATCH)
         self.GAMMA = GAMMA
         self.TAU = TAU
         self.stable_mutex = Lock()
@@ -153,7 +153,8 @@ class QNetPolicygrad(algo.Algorithm):
         with self.stable_mutex:
             v = self.Q_stable.predict( [s,a] )
             an, vn  = self.online_policy_value.predict(sn)    # action at sn
-            apolicy = self.online_policy_action.predict(s)    # action at s
+            #apolicy = self.online_policy_action.predict(s)    # action at s
+            apolicy, vpolicy = self.online_policy_value.predict(s)
             #apolicy += np.random.uniform(low=-ACTION_DISPERSE, high=ACTION_DISPERSE, size=(BATCH,xp.ACTION_DIM))
             #apolicy  = np.clip(apolicy, -1, +1)
             sp, rp  = self.trans.predict(s, apolicy)          # predicted state and reward from transition model
@@ -186,6 +187,7 @@ class QNetPolicygrad(algo.Algorithm):
 
         # target and viz
         X = np.zeros( (1,STATE_DIM+xp.ACTION_DIM,)  )
+        bellman_sum = float(0.0)
         with xp.replay_mutex:
             for i,x in enumerate(buf):
                 # Can we trust vn = Q(sn, an) ?
@@ -202,17 +204,20 @@ class QNetPolicygrad(algo.Algorithm):
                     x.target_v = x.r    # nail final point
                     stuck = False
                     sample_weight[i] = 10.0
+                    bellman_sum += abs(x.target_v - vpolicy[i][0])
                 elif physics or stuck:
                     # use physics model, predicted sp, rp
                     st[i] = sp[i]
                     a[i]  = apolicy[i]
                     #x.target_v = max(x.wires_v, rp[i] + self.GAMMA*vp[i])
-                    x.target_v = rp[i] + self.GAMMA*vp[i]
+                    x.target_v = rp[i][0] + self.GAMMA*vp[i][0]
+                    bellman_sum += abs(x.target_v - vpolicy[i][0])
                 else:
                     # Q-learning
                     st[i] = sn[i]
                     #x.target_v = max(x.wires_v, x.r   + self.GAMMA*x.vn)
                     x.target_v = x.r   + self.GAMMA*x.vn
+                    bellman_sum += abs(x.target_v - x.v)
 
                 vt[i,0] = x.target_v
                 f = 0
@@ -248,23 +253,29 @@ class QNetPolicygrad(algo.Algorithm):
 
         xp.export_viz.N[0] = self.N
 
-        trans_loss = self.trans.learn_iteration(buf, dry_run)
+        transition_loss = self.trans.learn_iteration(buf, dry_run)
         if dry_run:
             with self.online_mutex:
                 loss = self.Q_online.test_on_batch( [s, a], vt )
-            #print("WIRES (test) %0.5f" % loss)
+            policy_loss = 0.0
         else:
             with self.online_mutex:
-                wires_loss = self.Q_online.train_on_batch( [s, a], vt, sample_weight=sample_weight )
+                loss = self.Q_online.train_on_batch( [s, a], vt, sample_weight=sample_weight )
             #test1 = self.Q_stable.test_on_batch( [s, a], vt )
             with self.stable_mutex:
                 stable_policy_a = self.stable_policy_action.predict(s)
                 policy_loss = self.online_policy_value.train_on_batch(s, [stable_policy_a,vt])  # vt target not used, see only_up()
+                policy_loss = float(policy_loss[0])   # [loss, close_to_previous_policy, only_up], print self.online_policy_value.metrics_names
             #test2 = self.Q_stable.test_on_batch( [s, a], vt )
             #print("test1", test1, "test2", test2)  # test2 must be equal to test1, otherwise we're learning not only policy, but Q too.
-            #print("WIRES %0.4f POLICY %0.4f TRANS %0.4f" % (wires_loss, policy_loss, trans_loss))
+            #print("WIRES %0.4f POLICY %0.4f TRANS %0.4f" % (loss, policy_loss, trans_loss))
             with self.online_mutex:
                 self._slowly_transfer_weights_to_stable_network(self.Q_stable, self.Q_online, self.TAU)
+        assert isinstance(bellman_sum, float), type(bellman_sum)
+        assert isinstance(transition_loss, float), type(transition_loss)
+        assert isinstance(policy_loss, float), type(policy_loss)
+        print "transition_loss", transition_loss, "policy_loss", policy_loss, "bellman_sum", bellman_sum, "loss", loss
+        return [transition_loss, bellman_sum, loss, policy_loss]
 
     def _save(self, fn):
         self.Q_stable.save_weights(fn + "_qnet.h5", overwrite=True)
