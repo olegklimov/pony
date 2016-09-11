@@ -41,7 +41,7 @@ DEPENDS= -MMD -MF $@.dep
 EVERY_BIN=viz-r$(EXE) viz-d$(EXE)
 
 UTIL = viz/miniutils.cpp
-VIZ  = viz/viz.cpp viz/viz-progress.cpp
+VIZ  = viz/viz.cpp viz/viz-progress.cpp viz/viz-qnet3d.cpp
 TSNE = t-sne/tsne.cpp t-sne/sptree.cpp
 
 UTIL_R = $(patsubst %.cpp, $(OBJDIRR)/%.o, $(UTIL))

@@ -1,5 +1,7 @@
 viz/miniutils.cpp
 viz/viz.cpp
+viz/viz-qnet3d.h
+viz/viz-qnet3d.cpp
 viz/viz-progress.h
 viz/viz-progress.cpp
 controller/algo_qnet_policygrad.py
