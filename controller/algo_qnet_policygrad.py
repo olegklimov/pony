@@ -101,7 +101,6 @@ class QNetPolicygrad(algo.Algorithm):
 
         self.countdown = 0
         self.demo_policy_tolearn = 0  #2000
-        self.use_random_policy = True
 
     def _learn_demo_policy_supervised(self, buf, dry_run):
         s = np.zeros( (self.BATCH, xp.STATE_DIM) )
@@ -132,8 +131,6 @@ class QNetPolicygrad(algo.Algorithm):
                 print("have %i random samples, start learning" % N)
             else:
                 self.demo_policy_tolearn = 0  # random action taken, supervised demo learning not applicable
-                import time
-                time.sleep(0.1)
                 return
 
         BATCH = len(buf)
@@ -359,5 +356,3 @@ class QNetPolicygrad(algo.Algorithm):
         with self.stable_mutex:
             stable.set_weights(ws_stable)
 
-    def useful_to_think_more(self):
-        return not self.use_random_policy

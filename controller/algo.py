@@ -7,18 +7,19 @@ class Algorithm:
         self.pause = False
         self.quit = False
         self.dry_run = True
+        self.use_random_policy = True
         self.save_load_mutex = Lock()
 
     def learn_thread_func(self):
         while 1:
-            while self.pause and not self.quit and not self.dry_run:
+            while (self.use_random_policy or self.pause) and not self.quit and not self.dry_run:
                 import time
                 time.sleep(0.1)
             if self.quit:
                 break
             with self.save_load_mutex:
                 self.run_single_learn_iteration(self.dry_run)
-                if xp.epoch > 2: self.dry_run = False
+                if xp.epoch > 1: self.dry_run = False
 
     def run_single_learn_iteration(self, dry_run):
         buf = xp.batch(self.BATCH)
@@ -44,7 +45,7 @@ class Algorithm:
         return self._control(s, action_space)
 
     def useful_to_think_more(self):
-        return False
+        return not self.use_random_policy
 
     def load_something_useful_on_start(self, fn):
         pass
