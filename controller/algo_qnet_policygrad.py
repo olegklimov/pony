@@ -75,18 +75,18 @@ class QNetPolicygrad(algo.Algorithm):
         online_trainable, self.Q_online = qmodel()
 
         for layer in stable_trainable:
-            layer.trainable = False  # model already compiled (that's where this flag used), this assignment avoids learning by policy below
+            layer.trainable = False  # model already compiled (that's where this flag used), this assignment avoids learning Q layers by learning policy
 
         def only_up(y_true, y_pred):
             return K.mean( -y_pred, axis=-1 )
         def close_to_previous_policy(act_previous, a_act_predicted):
-            return 100*K.mean(K.square(a_act_predicted - act_previous), axis=-1)
+            return 0.001*K.mean(K.square(a_act_predicted - act_previous), axis=-1)
 
         def policy_net(inp_s):
-            d1 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            d2 = Dense(320, activation='relu', W_regularizer=l2(0.001))
+            d1 = Dense(320, activation='relu', W_regularizer=l2(0.01))
+            d2 = Dense(320, activation='relu', W_regularizer=l2(0.01))
             #d3 = Dense(320, activation='relu', W_regularizer=l2(0.001))
-            out = Dense(xp.ACTION_DIM)
+            out = Dense(xp.ACTION_DIM, W_regularizer=l2(0.01))
             out_action = clamp(out( d2(d1(inp_s)) ))
             value_of_s = self.Q_stable( [inp_s,out_action] )
             action = Model( input=[inp_s], output=out_action )
@@ -166,7 +166,7 @@ class QNetPolicygrad(algo.Algorithm):
             x.vn = vn[i][0]
 
         # WIRES, good only for deterministic environments
-        if self.countdown==0:
+        if self.countdown==0 and False:
             N = len(xp.replay)
             self.N = N
             total_reward = 0
@@ -209,11 +209,13 @@ class QNetPolicygrad(algo.Algorithm):
                     # use physics model, predicted sp, rp
                     st[i] = sp[i]
                     a[i]  = apolicy[i]
-                    x.target_v = max(x.wires_v, rp[i] + self.GAMMA*vp[i])
+                    #x.target_v = max(x.wires_v, rp[i] + self.GAMMA*vp[i])
+                    x.target_v = rp[i] + self.GAMMA*vp[i]
                 else:
                     # Q-learning
                     st[i] = sn[i]
-                    x.target_v = max(x.wires_v, x.r   + self.GAMMA*x.vn)
+                    #x.target_v = max(x.wires_v, x.r   + self.GAMMA*x.vn)
+                    x.target_v = x.r   + self.GAMMA*x.vn
 
                 vt[i,0] = x.target_v
                 f = 0
