@@ -1,7 +1,10 @@
 viz/miniutils.cpp
 viz/viz.cpp
+viz/viz-progress.h
+viz/viz-progress.cpp
 controller/algo_qnet_policygrad.py
 controller/transition_model.py
 controller/xp.py
 controller/algo.py
 agent_cmdline.py
+Makefile

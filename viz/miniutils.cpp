@@ -1,4 +1,4 @@
-#include "../include/miniutils.h"
+#include "miniutils.h"
 #include <stdarg.h>
 #include <string>
 #include <boost/thread/thread.hpp>
@@ -126,37 +126,5 @@ void set_thread_name(const char* name)
 #endif
 #endif
 #endif
-
-void FullyIntelligentProfessionalConfigParser::from_string(const std::string& s) throw (std::runtime_error)
-{
-	std::istringstream ss(s);
-	for (int line=1; !ss.eof(); line++) {
-		char buf[1024], key[1024];
-		ss.getline(buf, sizeof(buf));
-		if (!buf[0] || buf[0]=='#') continue;
-		buf[1023] = 0;
-		int r = sscanf(buf, "%s", key);
-		if (r==1) {
-			char* val = buf + strlen(key);
-			while (*val && (*val==' ' || *val=='\t')) val++;
-			if (strings.find(key) != strings.end())
-				*strings[key] = val;
-			else if (ints.find(key) != ints.end())
-				*ints[key] = boost::lexical_cast<int>(val);
-			else if (reals.find(key) != reals.end())
-				*reals[key] = boost::lexical_cast<double>(val);
-			else if (callbacks.find(key) != callbacks.end())
-				callbacks[key](this, val);
-			else
-				throw std::runtime_error(
-					"unknown parameter '" + std::string(key) +
-					"', line " + boost::lexical_cast<std::string>(line) );
-		} else {
-			throw std::runtime_error(
-				"cannot interpret line " + boost::lexical_cast<std::string>(line)
-				);
-		}
-	}
-}
 
 } // namespace

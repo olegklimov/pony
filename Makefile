@@ -40,8 +40,8 @@ DEPENDS= -MMD -MF $@.dep
 
 EVERY_BIN=viz-r$(EXE) viz-d$(EXE)
 
-UTIL = lpr3/miniutils.cpp
-VIZ  = viz/viz.cpp
+UTIL = viz/miniutils.cpp
+VIZ  = viz/viz.cpp viz/viz-progress.cpp
 TSNE = t-sne/tsne.cpp t-sne/sptree.cpp
 
 UTIL_R = $(patsubst %.cpp, $(OBJDIRR)/%.o, $(UTIL))
@@ -60,9 +60,9 @@ $(OBJDIRR)/viz/viz.o: viz/../.generated/viz.moc
 viz/../.generated/viz.moc: viz/viz.cpp
 	$(MOC) -o $@ $<
 
-viz-r$(EXE): $(VIZ_R) $(UTILS_R) $(TSNE_R)
+viz-r$(EXE): $(VIZ_R) $(UTIL_R) $(TSNE_R)
 	$(LINK) $(LINK_OPT) $(LINK_OUT)$@ $^ $(LIBS) $(LIBSQT)
-viz-d$(EXE): $(VIZ_D) $(UTILS_D) $(TSNE_D)
+viz-d$(EXE): $(VIZ_D) $(UTIL_D) $(TSNE_D)
 	$(LINK) $(LINK_OPT) $(LINK_OUT)$@ $^ $(LIBSD) $(LIBSQTD)
 
 $(OBJDIRR)/%.o: %.cpp
