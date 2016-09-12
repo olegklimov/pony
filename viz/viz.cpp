@@ -42,7 +42,7 @@ public:
 	QSpinBox* timefilter_t2;
 
 	QWidget* page_progress;
-	boost::shared_ptr<Progress> progress;
+	//boost::shared_ptr<Progress> progress;
 
 	VizWindow(const std::string& dir):
 		QWidget(0),
@@ -50,11 +50,11 @@ public:
 	{
 		timer = new QTimer(this);
 		QObject::connect(timer, SIGNAL(timeout()), this, SLOT(timeout()));
-		timer->start(1000/30);
+		timer->start(1000/10);
 
 		timer_long = new QTimer(this);
 		QObject::connect(timer_long, SIGNAL(timeout()), this, SLOT(timeout_long()));
-		timer_long->start(1000/30);
+		timer_long->start(1000);
 
 		ini = new QSettings( (dir + "/viz.ini").c_str(), QSettings::IniFormat, this);
 
@@ -73,7 +73,7 @@ public:
 
 	void create_progress_page()
 	{
-		page_progress = progress_widget_create();
+		page_progress = progress_widget_create(dir + "/progress");
 		QGridLayout* grid = new QGridLayout();
 		page_progress->setLayout(grid);
 	}
@@ -200,17 +200,11 @@ public slots:
 
 	void timeout_long()
 	{
-		viz_widget->reopen(dir);
+		if (page_3d->isVisible())
+			viz_widget->reopen(dir);
+		if (page_progress->isVisible())
+			progress_widget_rescan_dir(page_progress);
 	}
-
-	void timeout_progress()
-	{
-//		progress = progress_init(
-//			task,
-//			dir + "/progress",
-//			prefix);
-	}
-
 };
 
 int main(int argc, char *argv[])
