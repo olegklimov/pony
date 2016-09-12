@@ -15,8 +15,9 @@ class Algorithm:
         self.iter_counter = 0
 
         import subprocess
+        rev  = subprocess.Popen(["git", "log", "-1"], stdout=subprocess.PIPE).communicate()[0]
         diff = subprocess.Popen(["git", "diff"], stdout=subprocess.PIPE).communicate()[0]
-        self.progress = progress.Progress(dir, experiment_name, diff)
+        self.progress = progress.Progress(dir, experiment_name, rev + "\n" + diff)
         self.progress_last_epoch = 0
         self.time_start = time.time()
 
@@ -37,7 +38,7 @@ class Algorithm:
             self.iter_counter += 1
 
         epoch_int = int(xp.epoch)
-        if epoch_int != self.progress_last_epoch:
+        if epoch_int != self.progress_last_epoch or True:
             self.progress_last_epoch = epoch_int
             self.progress.push_data_point(self.iter_counter, xp.epoch, time.time() - self.time_start, 0.01, *losses_array)
 

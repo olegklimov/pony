@@ -8,5 +8,6 @@ controller/algo_qnet_policygrad.py
 controller/transition_model.py
 controller/xp.py
 controller/algo.py
+controller/progress.py
 agent_cmdline.py
 Makefile
