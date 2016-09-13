@@ -17,7 +17,7 @@ class Algorithm:
         import subprocess
         rev  = subprocess.Popen(["git", "log", "-1"], stdout=subprocess.PIPE).communicate()[0]
         diff = subprocess.Popen(["git", "diff"], stdout=subprocess.PIPE).communicate()[0]
-        self.progress = progress.Progress(dir, experiment_name, rev + "\n" + diff)
+        self.progress = progress.Progress(dir, experiment_name, rev + "\n" + diff, self.losses)
         self.progress_last_epoch = 0
         self.time_start = time.time()
 

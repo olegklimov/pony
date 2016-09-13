@@ -32,7 +32,7 @@ class Transition:
 
         self.model = Model( input=[inp_s, inp_a], output=[out_tensor_s, out_tensor_r] )
         from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
-        self.model.compile(loss='mse', optimizer=Adam(lr=0.0001, beta_2=0.999, epsilon=1e-5))
+        self.model.compile(loss=['mse', 'mse'], optimizer=Adam(lr=0.0001, beta_2=0.999, epsilon=1e-5))
         #self.model.compile(loss='mse', optimizer=Adamax())
         #self.model.compile(loss='mae', optimizer=Adam(lr=0.00005, beta_2=0.999))
 
@@ -49,7 +49,7 @@ class Transition:
             inp_s[i] = x.s 
             inp_a[i] = x.a
             target_s[i] = x.sn - x.s
-            target_r[i] = 0 #x.r
+            target_r[i] = x.r
             if np.abs(x.r) > CRASH_OR_WIN_THRESHOLD:
                 # Don't try to predict wins and crashes: it's a physical model,
                 # it only can approximate potential field r = V(s') - V(s)

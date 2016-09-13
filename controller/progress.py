@@ -2,7 +2,7 @@ import numpy as np
 import json, os
 
 class Progress:
-    def __init__(self, dir, task_name, desc):
+    def __init__(self, dir, task_name, desc, losses):
         self.task_name = task_name
         self.dir = dir
         self.N = 0
@@ -13,6 +13,7 @@ class Progress:
         self.mapped_N = None
         self.mapped_log = None
         self.desc = desc
+        self.losses = losses
         print("Progress: %s" % self.json_fn)
 
     def push_data_point(self, iter, epoch, ts, lr, loss1, loss2=0, loss3=0, loss4=0, loss5=0, loss6=0):
@@ -25,6 +26,7 @@ class Progress:
                 print >> f, json.dumps( {
                     "desc": self.desc,
                     "color": "#%x%x%x" % (np.random.randint(0,255), np.random.randint(0,255), np.random.randint(0,255)),
+                    "losses": self.losses,
                     "mmapped_log": self.mapped_log_fn,
                     "mmapped_N": self.mapped_N_fn
                     },

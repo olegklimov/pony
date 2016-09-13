@@ -20,11 +20,14 @@ using boost::iostreams::mapped_file_source;
 using std::string;
 
 static boost::mutex progress_feed_mutex;
+static const int LOSSES_MAX = 6;
+static const int HISTORY_STRIDE = 10;
 
 struct Graph {
 	std::string color;
 	std::string name;
 	std::string desc;
+	std::vector<string> losses;
 
 	std::string json_fn;
 	Json::Value json;
@@ -40,8 +43,12 @@ struct Graph {
 	{
 		file_log.close();
 		file_N.close();
-		file_log.open(file_log_fn);
-		file_N.open(file_N_fn);
+		try {
+			file_log.open(file_log_fn);
+			file_N.open(file_N_fn);
+		} catch (const std::exception& e) {
+			fprintf(stderr, "CANNOT OPEN %s: %s\n", file_log_fn.c_str(), e.what());
+		}
 		reopened_ts = miniutils::now();
 	}
 };
@@ -58,6 +65,10 @@ boost::shared_ptr<Graph> graph_init(const boost::filesystem::path& t, const std:
 	g->color = g->json["color"].asString();
 	g->file_log_fn = g->json["mmapped_log"].asString();
 	g->file_N_fn = g->json["mmapped_N"].asString();
+	int lcnt = g->json["losses"].size();
+	g->losses.resize(lcnt);
+	for (int c=0; c<lcnt; c++)
+		g->losses[c] = g->json["losses"][c].asString();
 	g->reopen();
 	return g;
 }
@@ -101,7 +112,7 @@ public:
 		setMouseTracking(true);
 	}
 
-	void find_maximums(double* max_epoch, double* first_loss, int* losses_count)
+	void find_maximums(double* max_epoch, double* first_loss)
 	{
 		float e = 10;
 		int graph_count = others.size();
@@ -111,19 +122,17 @@ public:
 				g->reopen();
 			int T = ((uint32_t*)g->file_N.data())[0];
 			float* h = (float*) g->file_log.data();
-			float epoch = h[(T-1)*10 + 1];
+			float epoch = h[(T-1)*HISTORY_STRIDE + 1];
 			e = std::max(epoch, e);
 		}
 		*max_epoch = 1 + int(e);
 		*first_loss = 1.0;
-		*losses_count = 6;
 		*first_loss = fixed_scale;
 	}
 
 	QRect plot;
 	double kx = 1;
 	double ky = 1;
-	int losses_count = 1;
 
 	void paintEvent(QPaintEvent* pev) override
 	{
@@ -142,7 +151,7 @@ public:
 			}
 		}
 
-		find_maximums(&max_epoch, &first_loss, &losses_count);
+		find_maximums(&max_epoch, &first_loss);
 
 		double PLOTH = 650;
 		plot = QRect(MARGIN, MARGIN, rect().width() - 2*MARGIN, PLOTH - 2*MARGIN);
@@ -170,11 +179,12 @@ public:
 			int T = ((uint32_t*)g->file_N.data())[0];
 			float* h = (float*) g->file_log.data();
 			drawme_line.resize(T);
+			int losses_count = g->losses.size();
 			for (int l=0; l<losses_count; l++) {
 				if (!(losses_visible[n] & (1<<l))) continue;
 				for (int i=0; i<T; ++i) {
-					double pt_epoch     = h[10*i + 1];
-					double pt_val       = h[10*i + 4+l];
+					double pt_epoch     = h[HISTORY_STRIDE*i + 1];
+					double pt_val       = h[HISTORY_STRIDE*i + 4+l];
 					drawme_line[i].rx() = plot.left()   + kx*pt_epoch;
 					drawme_line[i].ry() = plot.bottom() - ky*pt_val;
 				}
@@ -207,6 +217,7 @@ public:
 			p.drawText(textrect, name.c_str());
 			interactives.push_back({ textrect.adjusted(-2,-2,+2,+2), 0xFFFF, n });
 
+			int losses_count = g->losses.size();
 			for (int l=0; l<losses_count; l++) {
 				QRect r(textover + (fh+3)*l, PLOTH + MARGIN + (fh+3)*n, fh, fh);
 				p.setPen(color);
@@ -216,14 +227,14 @@ public:
 			}
 		}
 		if (textover)
-		for (int l=0; l<losses_count; l++) {
+		for (int l=0; l<LOSSES_MAX; l++) {
 			QRect r(textover + (fh+3)*l, PLOTH + MARGIN + (fh+3)*(graph_count+1), fh, fh);
 			p.setPen(Qt::white);
-			p.drawText(r, Qt::AlignCenter, l==losses_count-1 ? "S" : miniutils::stdprintf("%i", l).c_str());
+			p.drawText(r, Qt::AlignCenter, miniutils::stdprintf("%i", l).c_str());
 			interactives.push_back({ r.adjusted(-2,-2,+2,+2), uint16_t(1<<l), -1 });
 		}
 		QRect desc = rect().adjusted(+MARGIN, +MARGIN, -MARGIN, -MARGIN);
-		desc.setLeft(textover + losses_count*(fh+3) + MARGIN*2);
+		desc.setLeft(textover + LOSSES_MAX*(fh+3) + MARGIN*2);
 		desc.setTop(PLOTH + MARGIN);
 		if (hl_n!=-1) {
 			p.setPen(Qt::white);
@@ -289,12 +300,13 @@ public:
 			const shared_ptr<Graph> g = others[n];
 			int P = ((uint32_t*)g->file_N.data())[0];
 			float* h = (float*) g->file_log.data();
+			int losses_count = g->losses.size();
 			for (int l=0; l<losses_count; l++) {
 				if (!(losses_visible[n] & (1<<l))) continue;
 				for (int i=0; i<P; ++i) {
-					double x = plot.left() + kx*h[i*10 + 1];
-					if (abs(x - mev->x()) > 10) continue;
-					double y1 = plot.bottom() - ky*h[i*10 + 4+l];
+					double x = plot.left() + kx*h[i*HISTORY_STRIDE + 1];
+					if (abs(x - mev->x()) > HISTORY_STRIDE) continue;
+					double y1 = plot.bottom() - ky*h[i*HISTORY_STRIDE + 4+l];
 					double y2 = y1;
 					assert(y1 <= y2);
 					double dist = 0;
@@ -309,18 +321,20 @@ public:
 						hl_x = x + plot.left() + 10;
 						hl_y = plot.bottom();
 						new_hl_pointdesc = miniutils::stdprintf(
+							"%s\n"
 							"loss[%i] = %0.4lf\n"
 							"iter  = %06i\n"
 							"epoch = %0.3lf\n"
 							"time  = %02i:%02i:%02i\n"
 							"lr    = %0.4lf\n",
-							l, double(h[i*10 + 4+l]),
-							int(h[i*10+0]),
-							double(h[i*10+1]),
-							int(h[i*10+2]) / 60 / 60,
-							int(h[i*10+2]) / 60 % 60,
-							int(h[i*10+2]) % 60,
-							double(h[i*10+3])
+							g->losses[l].c_str(),
+							l, double(h[i*HISTORY_STRIDE + 4+l]),
+							int(h[i*HISTORY_STRIDE+0]),
+							double(h[i*HISTORY_STRIDE+1]),
+							int(h[i*HISTORY_STRIDE+2]) / 60 / 60,
+							int(h[i*HISTORY_STRIDE+2]) / 60 % 60,
+							int(h[i*HISTORY_STRIDE+2]) % 60,
+							double(h[i*HISTORY_STRIDE+3])
 							);
 						hl_desc = g->desc;
 					}

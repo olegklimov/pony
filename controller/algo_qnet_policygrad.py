@@ -277,6 +277,8 @@ class QNetPolicygrad(algo.Algorithm):
         #print "transition_loss", transition_loss, "reward_loss", reward_loss, "policy_loss", policy_loss, "bellman_sum", bellman_sum, "loss", loss
         return [transition_loss, reward_loss, bellman_sum, loss, policy_loss]
 
+    losses = ["transition", "reward", "bellman", "targeting", "policy"]
+
     def _save(self, fn):
         self.Q_stable.save_weights(fn + "_qnet.h5", overwrite=True)
         self.stable_policy_action.save_weights(fn + "_policy.h5", overwrite=True)
