@@ -187,7 +187,12 @@ class QNetPolicygrad(algo.Algorithm):
 
         # target and viz
         X = np.zeros( (1,STATE_DIM+xp.ACTION_DIM,)  )
-        bellman_sum = float(0.0)
+        bellman_term = 0.0
+        bellman_term_n = 0.01
+        bellman_phys = 0.0
+        bellman_phys_n = 0.01
+        bellman_qlrn = 0.0
+        bellman_qlrn_n = 0.01
         with xp.replay_mutex:
             for i,x in enumerate(buf):
                 # Can we trust vn = Q(sn, an) ?
@@ -204,20 +209,23 @@ class QNetPolicygrad(algo.Algorithm):
                     x.target_v = x.r    # nail final point
                     stuck = False
                     sample_weight[i] = 10.0
-                    bellman_sum += abs(x.target_v - vpolicy[i][0])
+                    bellman_term += abs(x.target_v - vpolicy[i][0])
+                    bellman_term_n += 1
                 elif physics or stuck:
                     # use physics model, predicted sp, rp
                     st[i] = sp[i]
                     a[i]  = apolicy[i]
                     #x.target_v = max(x.wires_v, rp[i] + self.GAMMA*vp[i])
                     x.target_v = rp[i][0] + self.GAMMA*vp[i][0]
-                    bellman_sum += abs(x.target_v - vpolicy[i][0])
+                    bellman_phys += abs(x.target_v - vpolicy[i][0])
+                    bellman_phys_n += 1
                 else:
                     # Q-learning
                     st[i] = sn[i]
                     #x.target_v = max(x.wires_v, x.r   + self.GAMMA*x.vn)
                     x.target_v = x.r   + self.GAMMA*x.vn
-                    bellman_sum += abs(x.target_v - x.v)
+                    bellman_qlrn += abs(x.target_v - x.v)
+                    bellman_qlrn_n += 1
 
                 vt[i,0] = x.target_v
                 f = 0
@@ -271,13 +279,12 @@ class QNetPolicygrad(algo.Algorithm):
             #print("WIRES %0.4f POLICY %0.4f TRANS %0.4f" % (loss, policy_loss, trans_loss))
             with self.online_mutex:
                 self._slowly_transfer_weights_to_stable_network(self.Q_stable, self.Q_online, self.TAU)
-        assert isinstance(bellman_sum, float), type(bellman_sum)
+        assert isinstance(bellman_qlrn + bellman_phys + bellman_term, float)
         assert isinstance(transition_loss, float), type(transition_loss)
         assert isinstance(policy_loss, float), type(policy_loss)
-        #print "transition_loss", transition_loss, "reward_loss", reward_loss, "policy_loss", policy_loss, "bellman_sum", bellman_sum, "loss", loss
-        return [transition_loss, reward_loss, bellman_sum, loss, policy_loss]
+        return [transition_loss, reward_loss, bellman_term/bellman_term_n, bellman_phys/bellman_phys_n, bellman_qlrn/bellman_qlrn_n]
 
-    losses = ["transition", "reward", "bellman", "targeting", "policy"]
+    losses = ["transition", "reward", "bellman_term", "bellman_phys", "bellman_qlrn"]
 
     def _save(self, fn):
         self.Q_stable.save_weights(fn + "_qnet.h5", overwrite=True)

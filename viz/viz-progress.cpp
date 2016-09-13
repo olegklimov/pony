@@ -118,7 +118,7 @@ public:
 		int graph_count = others.size();
 		for (int n=0; n<graph_count; n++) {
 			const shared_ptr<Graph> g = others[n];
-			if (g->reopened_ts + 10*1000000ULL > miniutils::now())
+			if (g->reopened_ts + 10*1000000ULL < miniutils::now())
 				g->reopen();
 			int T = ((uint32_t*)g->file_N.data())[0];
 			float* h = (float*) g->file_log.data();

@@ -191,6 +191,7 @@ def rollout():
 
         if human_records_xp and (global_step_counter % 5 == 0 or done):
             rgb = env.render("rgb_array")
+            global dir_jpeg_created
             if not dir_jpeg_created:
                 dir_jpeg_created = True
                 try: shutil.rmtree(dir_jpeg)
