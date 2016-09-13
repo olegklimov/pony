@@ -49,7 +49,7 @@ class Transition:
             inp_s[i] = x.s 
             inp_a[i] = x.a
             target_s[i] = x.sn - x.s
-            target_r[i] = x.r
+            target_r[i] = 0 #x.r
             if np.abs(x.r) > CRASH_OR_WIN_THRESHOLD:
                 # Don't try to predict wins and crashes: it's a physical model,
                 # it only can approximate potential field r = V(s') - V(s)
@@ -75,7 +75,7 @@ class Transition:
                 loss = self.model.train_on_batch([inp_s, inp_a], [target_s, target_r], sample_weight=[sample_weight,sample_weight])
             #print("transition dry_run=%i %0.5f" % (dry_run, loss))
         #print self.model.metrics_names  # [loss, state_loss, reward_loss]
-        return float(loss[0])
+        return float(loss[1]), float(loss[2])
 
     def predict(self, inp_s, inp_a):
         with self.model_mutex:

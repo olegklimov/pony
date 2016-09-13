@@ -253,7 +253,7 @@ class QNetPolicygrad(algo.Algorithm):
 
         xp.export_viz.N[0] = self.N
 
-        transition_loss = self.trans.learn_iteration(buf, dry_run)
+        transition_loss, reward_loss = self.trans.learn_iteration(buf, dry_run)
         if dry_run:
             with self.online_mutex:
                 loss = self.Q_online.test_on_batch( [s, a], vt )
@@ -274,8 +274,8 @@ class QNetPolicygrad(algo.Algorithm):
         assert isinstance(bellman_sum, float), type(bellman_sum)
         assert isinstance(transition_loss, float), type(transition_loss)
         assert isinstance(policy_loss, float), type(policy_loss)
-        print "transition_loss", transition_loss, "policy_loss", policy_loss, "bellman_sum", bellman_sum, "loss", loss
-        return [transition_loss, bellman_sum, loss, policy_loss]
+        #print "transition_loss", transition_loss, "reward_loss", reward_loss, "policy_loss", policy_loss, "bellman_sum", bellman_sum, "loss", loss
+        return [transition_loss, reward_loss, bellman_sum, loss, policy_loss]
 
     def _save(self, fn):
         self.Q_stable.save_weights(fn + "_qnet.h5", overwrite=True)
@@ -290,7 +290,8 @@ class QNetPolicygrad(algo.Algorithm):
         self.demo_policy_tolearn = 0
 
     def load_something_useful_on_start(self, fn):
-        self.trans.model.load_weights(fn + "_trans.h5")
+        try: self.trans.model.load_weights(fn + "_trans.h5")
+        except Exception, e: print("cannot load transition model weights: %s" % e)
 
     def _reset(self, new_experience):
         if new_experience: # have xp.replay_mutex locked if true

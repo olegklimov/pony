@@ -39,9 +39,7 @@ print("Prefix: {}".format(prefix))
 print("Experiment: {}".format(experiment_name))
 
 dir_jpeg = dir + "/" + prefix
-try: shutil.rmtree(dir_jpeg)
-except: pass
-os.makedirs(dir_jpeg)
+dir_jpeg_created = False
 
 if args.loadxp:
     for x in args.loadxp:
@@ -193,8 +191,11 @@ def rollout():
 
         if human_records_xp and (global_step_counter % 5 == 0 or done):
             rgb = env.render("rgb_array")
-            try: os.mkdir(dir_jpeg)
-            except: pass
+            if not dir_jpeg_created:
+                dir_jpeg_created = True
+                try: shutil.rmtree(dir_jpeg)
+                except: pass
+                os.makedirs(dir_jpeg)
             jpeg_name = dir_jpeg + "/{:05}".format(global_step_counter)
             scipy.misc.imsave(jpeg_name, rgb, format="jpeg")
             pt.jpeg = jpeg_name

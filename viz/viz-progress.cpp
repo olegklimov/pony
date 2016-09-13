@@ -103,7 +103,18 @@ public:
 
 	void find_maximums(double* max_epoch, double* first_loss, int* losses_count)
 	{
-		*max_epoch = 25.0;
+		float e = 10;
+		int graph_count = others.size();
+		for (int n=0; n<graph_count; n++) {
+			const shared_ptr<Graph> g = others[n];
+			if (g->reopened_ts + 10*1000000ULL > miniutils::now())
+				g->reopen();
+			int T = ((uint32_t*)g->file_N.data())[0];
+			float* h = (float*) g->file_log.data();
+			float epoch = h[(T-1)*10 + 1];
+			e = std::max(epoch, e);
+		}
+		*max_epoch = 1 + int(e);
 		*first_loss = 1.0;
 		*losses_count = 6;
 		*first_loss = fixed_scale;
@@ -152,8 +163,6 @@ public:
 
 		for (int n=0; n<graph_count; n++) {
 			const shared_ptr<Graph> g = others[n];
-			if (g->reopened_ts + 10*1000000ULL > miniutils::now())
-				g->reopen();
 			QColor color( g->color.c_str() );
 			if (n==hl_n) color = color.lighter(140);
 			std::vector<QPointF> drawme;
@@ -178,6 +187,7 @@ public:
 		p.setClipRect(QRect(), Qt::NoClip);
 		int fh = p.fontMetrics().height();
 		int textover = 0;
+		interactives.clear();
 		for (int n=0; n<graph_count; n++) {
 			const shared_ptr<Graph> g = others[n];
 			string name = g->name;
@@ -213,7 +223,7 @@ public:
 			interactives.push_back({ r.adjusted(-2,-2,+2,+2), uint16_t(1<<l), -1 });
 		}
 		QRect desc = rect().adjusted(+MARGIN, +MARGIN, -MARGIN, -MARGIN);
-		desc.setLeft(textover + losses_count*(fh+3) + MARGIN);
+		desc.setLeft(textover + losses_count*(fh+3) + MARGIN*2);
 		desc.setTop(PLOTH + MARGIN);
 		if (hl_n!=-1) {
 			p.setPen(Qt::white);
@@ -277,7 +287,7 @@ public:
 		int graph_count = others.size();
 		for (int n=0; n<graph_count; n++) {
 			const shared_ptr<Graph> g = others[n];
-			int P = ((float*)g->file_N.data())[0];
+			int P = ((uint32_t*)g->file_N.data())[0];
 			float* h = (float*) g->file_log.data();
 			for (int l=0; l<losses_count; l++) {
 				if (!(losses_visible[n] & (1<<l))) continue;
@@ -299,10 +309,12 @@ public:
 						hl_x = x + plot.left() + 10;
 						hl_y = plot.bottom();
 						new_hl_pointdesc = miniutils::stdprintf(
+							"loss[%i] = %0.4lf\n"
 							"iter  = %06i\n"
 							"epoch = %0.3lf\n"
 							"time  = %02i:%02i:%02i\n"
 							"lr    = %0.4lf\n",
+							l, double(h[i*10 + 4+l]),
 							int(h[i*10+0]),
 							double(h[i*10+1]),
 							int(h[i*10+2]) / 60 / 60,
