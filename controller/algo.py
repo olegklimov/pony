@@ -42,6 +42,9 @@ class Algorithm:
             self.progress_last_epoch = epoch_int
             self.progress.push_data_point(self.iter_counter, xp.epoch, time.time() - self.time_start, 0.01, *losses_array)
 
+    def push_testrun_point(self, score, runtime):
+        self.progress.push_testrun_point(self.iter_counter, xp.epoch, time.time() - self.time_start, score, runtime)
+
     def save(self, fn):
         with self.save_load_mutex:
             print("SAVE %s" % fn)

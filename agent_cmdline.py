@@ -51,13 +51,15 @@ if args.loadxp:
     print("Total {} samples".format(len(xp.replay)))
 print
 
-env = gym.make(env_type)
+def make_env():
+    env = gym.make(env_type)
+    if args.frameskip > 1:
+        wrap = SkipWrapper(args.frameskip)
+        env = wrap(env)
+    return env
+
 args.frameskip = args.frameskip[0]
-if args.frameskip > 1:
-    wrap = SkipWrapper(args.frameskip)
-    env = wrap(env)
-    #print env.metadata
-    #print env.env.metadata
+env = make_env()
 
 if xp.STATE_DIM==0:
     xp.init_from_env(env)
@@ -95,14 +97,13 @@ alg.pause = True
 human_wants_quit = False
 human_wants_restart = False
 human_records_xp = True
-human_single_run = 0
 new_xp = []
 
 import pyglet
 from pyglet.window import key as kk
 
 def key_press(key, mod):
-    global human_wants_restart, human_sets_pause, human_records_xp, human_single_run
+    global human_wants_restart, human_sets_pause, human_records_xp
     if key==32:
         human_sets_pause = (human_sets_pause+1) % 2
         print("pause %i (%s)" % (human_sets_pause, ["GO!","STOP","AUTO"][human_sets_pause]))
@@ -116,10 +117,6 @@ def key_press(key, mod):
         alg.load(dir + "/_weights")
         with xp.replay_mutex:
             xp.export_viz_open(dir, "r+")
-    elif key==kk.F5:
-        human_single_run += 1
-        human_sets_pause = 0
-        print("SINGLE RUN x%i" % human_single_run)
     elif key==ord("j"):
         human_records_xp = not human_records_xp
         print("record=%i prefix=%s" % (human_records_xp, prefix))
@@ -158,12 +155,31 @@ learn_thread = Thread(target=alg.learn_thread_func)
 learn_thread.daemon = True
 learn_thread.start()
 
+def testrun_rollout():
+    "instead of sleeping, run a test, post score to progress log"
+    env2 = make_env()
+    score = 0
+    ts = 0
+    sn = env2.reset()
+    while 1:
+        s = sn
+        a = alg.control(s, env2.action_space)
+        sn, r, done, info = env2.step(a)
+        if ts > env2.spec.timestep_limit / args.frameskip:
+            done = True
+        ts += 1
+        score += r
+        if done: break
+    print "testrun: %0.2f in %i steps" % (score, ts)
+    alg.push_testrun_point(score, ts)
+
 def rollout():
-    global human_wants_quit, human_wants_restart, human_sets_pause, human_single_run, sn, global_step_counter
+    global human_wants_quit, human_wants_restart, human_sets_pause, sn, global_step_counter
     human_wants_restart = False
     track = []
     ts = 0
     r = 0
+    score = 0
     while 1:
         s = sn
 
@@ -171,7 +187,6 @@ def rollout():
             env.viewer.window.dispatch_events()
             time.sleep(0.2)
             a = alg.control(s, env.action_space)
-            if human_single_run > 0: break
         if human_wants_quit: break
 
         a = alg.control(s, env.action_space)
@@ -181,6 +196,7 @@ def rollout():
             done = True
             print("time limit hit")
         ts += 1
+        score += r
         if human_wants_restart:
             done = True
             r = -100.0
@@ -206,7 +222,7 @@ def rollout():
         global_step_counter += 1
         if done: break
 
-    print("last reward %0.2f on step %i" % (r, ts))
+    print("total reward %0.2f, last reward %0.2f on step %i" % (score, r, ts))
 
     if track and human_records_xp:
         new_xp.extend(track)
@@ -216,20 +232,18 @@ def rollout():
             xp.export_viz_open(dir, "r+")
             print("now replay buffer have %i samples" % len(xp.replay))
             alg.reset(True)
-        for i in range(200):
+        wait_t1 = time.time()
+        while 1:
             env.viewer.window.dispatch_events()
             if not alg.useful_to_think_more(): break
             if human_wants_quit: break
             if human_wants_restart: break
-            time.sleep(0.1)
+            testrun_rollout()
+            time.sleep(2)
+            if time.time() > wait_t1 + 20: break
     else:
             alg.reset(False)
     sn = env.reset()
-    if human_single_run > 0:
-        human_single_run -= 1
-        print("SINGLE RUN %i LEFT" % human_single_run)
-        if human_single_run==0:
-            human_sets_pause = 1
 
 episode_n = 0
 while not human_wants_quit:
