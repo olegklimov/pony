@@ -151,6 +151,9 @@ public:
 
 	QTrainProgress(): settings("OlegKlimov", "Pony")
 	{
+		QFont f = QFont("Courier");
+                f.setFixedPitch(true);
+                setFont(f);
 		startTimer(1000);
 		setMouseTracking(true);
 	}
@@ -245,6 +248,7 @@ public:
 			int runind_count = g->runind.size();
 			float* t = (float*) g->file_tst.data();
 			for (int l=0; l<runind_count; l++) {
+				if (!(losses_visible[n] & (1<<(l+LOSSES_MAX)))) continue;
 				for (int i=0; i<T; ++i) {
 					double pt_epoch     = t[HISTORY_STRIDE*i + 1];
 					double pt_val       = t[HISTORY_STRIDE*i + FIRST_LOSS+l];
@@ -281,19 +285,25 @@ public:
 			interactives.push_back({ textrect.adjusted(-2,-2,+2,+2), 0xFFFF, n });
 
 			int losses_count = g->losses.size();
-			for (int l=0; l<losses_count; l++) {
+			int runind_count = g->runind.size();
+			for (int l=0; l<2*LOSSES_MAX; l++) {
 				QRect r(textover + (fh+3)*l, PLOTH + MARGIN + (fh+3)*n, fh, fh);
 				p.setPen(color);
-				p.setBrush( (losses_visible[n]&(1<<l)) ? color : Qt::transparent);
+				bool visible = false;
+				int i = l-LOSSES_MAX;
+				if (i<0 && l>=losses_count) continue;
+				if (i>=runind_count) continue;
+				visible = !!(losses_visible[n]&(1<<l));
+				p.setBrush(visible ? color : Qt::transparent);
 				p.drawRect(r);
 				interactives.push_back({ r.adjusted(-2,-2,+2,+2), uint16_t(1<<l), n });
 			}
 		}
 		if (textover)
-		for (int l=0; l<LOSSES_MAX; l++) {
+		for (int l=0; l<2*LOSSES_MAX; l++) {
 			QRect r(textover + (fh+3)*l, PLOTH + MARGIN + (fh+3)*(graph_count+1), fh, fh);
 			p.setPen(Qt::white);
-			p.drawText(r, Qt::AlignCenter, miniutils::stdprintf("%i", l).c_str());
+			p.drawText(r, Qt::AlignCenter, miniutils::stdprintf("%i", l%LOSSES_MAX).c_str());
 			interactives.push_back({ r.adjusted(-2,-2,+2,+2), uint16_t(1<<l), -1 });
 		}
 		QRect desc = rect().adjusted(+MARGIN, +MARGIN, -MARGIN, -MARGIN);
@@ -362,15 +372,31 @@ public:
 		for (int n=0; n<graph_count; n++) {
 			const shared_ptr<Graph> g = others[n];
 			int P = ((uint32_t*)g->file_NT.data())[0];
+			int T = ((uint32_t*)g->file_NT.data())[1];
 			float* h = (float*) g->file_log.data();
+			float* t = (float*) g->file_tst.data();
 			int losses_count = g->losses.size();
-			for (int l=0; l<losses_count; l++) {
+			int runind_count = g->runind.size();
+			for (int l=0; l<2*LOSSES_MAX; l++) {
 				if (!(losses_visible[n] & (1<<l))) continue;
-				for (int i=0; i<P; ++i) {
-					double x = plot.left() + kx*h[i*HISTORY_STRIDE + 1];
-					if (abs(x - mev->x()) > HISTORY_STRIDE) continue;
-					double y1 = plot.bottom() - ky*h[i*HISTORY_STRIDE + FIRST_LOSS+l];
-					double y2 = y1;
+				int q = l-LOSSES_MAX;
+				if (q<0 && l>=losses_count) continue;
+				if (q>=runind_count) continue;
+				for (int i=0; i < (q<0 ? P:T); ++i) {
+					double x, y1, y2;
+					float* pointer;
+					if (q<0) {
+						x  = plot.left()   + kx*h[i*HISTORY_STRIDE + 1];
+						y1 = plot.bottom() - ky*h[i*HISTORY_STRIDE + FIRST_LOSS+l];
+						y2 = y1;
+						pointer = h;
+					} else {
+						x  = plot.left()   + kx*t[i*HISTORY_STRIDE + 1];
+						y1 = plot.bottom() - ky*t[i*HISTORY_STRIDE + FIRST_LOSS+q];
+						y2 = y1;
+						pointer = t;
+					}
+					if (abs(x - mev->x()) > 10) continue;
 					assert(y1 <= y2);
 					double dist = 0;
 					if (mev->y() < y1) dist += abs(mev->y() - y1);
@@ -384,20 +410,19 @@ public:
 						hl_x = x + plot.left() + 10;
 						hl_y = plot.bottom();
 						new_hl_pointdesc = miniutils::stdprintf(
-							"%s\n"
-							"loss[%i] = %0.4lf\n"
-							"iter  = %06i\n"
-							"epoch = %0.3lf\n"
-							"time  = %02i:%02i:%02i\n"
-							"lr    = %0.4lf\n",
-							g->losses[l].c_str(),
-							l, double(h[i*HISTORY_STRIDE + FIRST_LOSS+l]),
-							int(h[i*HISTORY_STRIDE+0]),
-							double(h[i*HISTORY_STRIDE+1]),
-							int(h[i*HISTORY_STRIDE+2]) / 60 / 60,
-							int(h[i*HISTORY_STRIDE+2]) / 60 % 60,
-							int(h[i*HISTORY_STRIDE+2]) % 60,
-							double(h[i*HISTORY_STRIDE+3])
+							"loss[%i] = %0.4lf -- %s\n"
+							"epoch    = %0.3lf\n"
+							"time     = %02i:%02i:%02i\n"
+							"lr       = %0.4lf\n"
+							"iter     = %06i\n",
+							l, double(pointer[i*HISTORY_STRIDE + FIRST_LOSS+(q<0 ? l:q)]),
+							(q<0 ? g->losses[l].c_str() : g->runind[q].c_str()),
+							double(pointer[i*HISTORY_STRIDE+1]),
+							int(pointer[i*HISTORY_STRIDE+2]) / 60 / 60,
+							int(pointer[i*HISTORY_STRIDE+2]) / 60 % 60,
+							int(pointer[i*HISTORY_STRIDE+2]) % 60,
+							double(pointer[i*HISTORY_STRIDE+3]),
+							int(pointer[i*HISTORY_STRIDE+0])
 							);
 						hl_desc = g->desc;
 					}
