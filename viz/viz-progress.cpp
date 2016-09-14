@@ -22,34 +22,72 @@ using std::string;
 static boost::mutex progress_feed_mutex;
 static const int LOSSES_MAX = 6;
 static const int HISTORY_STRIDE = 10;
+static const int CONDENSATE_TO = 1000;
+static const int FIRST_LOSS = 4;
 
 struct Graph {
 	std::string color;
 	std::string name;
 	std::string desc;
 	std::vector<string> losses;
+	std::vector<string> runind;
 
 	std::string json_fn;
 	Json::Value json;
 
 	std::string file_log_fn;
 	mapped_file_source file_log;
-	std::string file_N_fn;
-	mapped_file_source file_N;
+	int file_log_div;
+	std::vector<float> file_log_min;
+	std::vector<float> file_log_max;
+	std::string file_tst_fn;
+	mapped_file_source file_tst;
+	std::string file_NT_fn;
+	mapped_file_source file_NT;
 
 	uint64_t reopened_ts;
 
 	void reopen()
 	{
 		file_log.close();
-		file_N.close();
+		file_tst.close();
+		file_NT.close();
 		try {
 			file_log.open(file_log_fn);
-			file_N.open(file_N_fn);
+			file_tst.open(file_tst_fn);
+			file_NT.open(file_NT_fn);
 		} catch (const std::exception& e) {
 			fprintf(stderr, "CANNOT OPEN %s: %s\n", file_log_fn.c_str(), e.what());
 		}
 		reopened_ts = miniutils::now();
+	}
+
+	void condense_log()
+	{
+		int N = ((uint32_t*)file_NT.data())[0];
+		float* h = (float*) file_log.data();
+		file_log_div = 1;
+		while (N / file_log_div > CONDENSATE_TO)
+			file_log_div += 1;
+		int shorter = (N+file_log_div-1) / file_log_div;
+		//int shorter = N / file_log_div;
+		//shorter += 1;
+		file_log_min.assign(HISTORY_STRIDE*shorter,  1e10);
+		file_log_max.assign(HISTORY_STRIDE*shorter, -1e10);
+		assert( (shorter-1)*HISTORY_STRIDE+(HISTORY_STRIDE-1) < (int)file_log_max.size() );
+		for (int c=0; c<N; c++) {
+			int s = c/file_log_div;
+			assert(s < shorter);
+			for (int l=FIRST_LOSS; l<HISTORY_STRIDE; l++) {
+				float v = h[c*HISTORY_STRIDE + l];
+				int idx = s*HISTORY_STRIDE + l;
+				assert(idx < HISTORY_STRIDE*shorter);
+				float& min = file_log_min[idx];
+				float& max = file_log_max[idx];
+				min = std::min(min, v);
+				max = std::max(max, v);
+			}
+		}
 	}
 };
 
@@ -64,11 +102,16 @@ boost::shared_ptr<Graph> graph_init(const boost::filesystem::path& t, const std:
 	g->desc = g->json["desc"].asString();
 	g->color = g->json["color"].asString();
 	g->file_log_fn = g->json["mmapped_log"].asString();
-	g->file_N_fn = g->json["mmapped_N"].asString();
+	g->file_tst_fn = g->json["mmapped_tst"].asString();
+	g->file_NT_fn = g->json["mmapped_NT"].asString();
 	int lcnt = g->json["losses"].size();
 	g->losses.resize(lcnt);
 	for (int c=0; c<lcnt; c++)
 		g->losses[c] = g->json["losses"][c].asString();
+	int rcnt = g->json["runind"].size();
+	g->runind.resize(rcnt);
+	for (int c=0; c<rcnt; c++)
+		g->runind[c] = g->json["runind"][c].asString();
 	g->reopen();
 	return g;
 }
@@ -120,7 +163,7 @@ public:
 			const shared_ptr<Graph> g = others[n];
 			if (g->reopened_ts + 10*1000000ULL < miniutils::now())
 				g->reopen();
-			int T = ((uint32_t*)g->file_N.data())[0];
+			int T = ((uint32_t*)g->file_NT.data())[0];
 			float* h = (float*) g->file_log.data();
 			float epoch = h[(T-1)*HISTORY_STRIDE + 1];
 			e = std::max(epoch, e);
@@ -174,22 +217,42 @@ public:
 			const shared_ptr<Graph> g = others[n];
 			QColor color( g->color.c_str() );
 			if (n==hl_n) color = color.lighter(140);
-			std::vector<QPointF> drawme;
+			std::vector<QPointF> drawme_area;
 			std::vector<QPointF> drawme_line;
-			int T = ((uint32_t*)g->file_N.data())[0];
+			int N = ((uint32_t*)g->file_NT.data())[0];
+			int T = ((uint32_t*)g->file_NT.data())[1];
 			float* h = (float*) g->file_log.data();
+			g->condense_log();
+			int shorter_N = g->file_log_min.size() / HISTORY_STRIDE;
+			drawme_area.resize(2*shorter_N);
 			drawme_line.resize(T);
 			int losses_count = g->losses.size();
 			for (int l=0; l<losses_count; l++) {
 				if (!(losses_visible[n] & (1<<l))) continue;
-				for (int i=0; i<T; ++i) {
+				for (int s=0; s<shorter_N; ++s) {
+					int i = s*g->file_log_div;
 					double pt_epoch     = h[HISTORY_STRIDE*i + 1];
-					double pt_val       = h[HISTORY_STRIDE*i + 4+l];
-					drawme_line[i].rx() = plot.left()   + kx*pt_epoch;
-					drawme_line[i].ry() = plot.bottom() - ky*pt_val;
+					drawme_area[s              ].rx() = plot.left()   + kx*pt_epoch;
+					drawme_area[s              ].ry() = plot.bottom() - ky*g->file_log_max[s*HISTORY_STRIDE + FIRST_LOSS+l];
+					drawme_area[2*shorter_N-s-1].rx() = plot.left()   + kx*pt_epoch;
+					drawme_area[2*shorter_N-s-1].ry() = plot.bottom() - ky*g->file_log_min[s*HISTORY_STRIDE + FIRST_LOSS+l];
 				}
 				p.setPen(color);
 				p.setBrush(color);
+				p.setOpacity(0.7);
+				p.drawPolygon(drawme_area.data(), 2*shorter_N);
+			}
+			int runind_count = g->runind.size();
+			float* t = (float*) g->file_tst.data();
+			for (int l=0; l<runind_count; l++) {
+				for (int i=0; i<T; ++i) {
+					double pt_epoch     = t[HISTORY_STRIDE*i + 1];
+					double pt_val       = t[HISTORY_STRIDE*i + FIRST_LOSS+l];
+					drawme_line[i].rx() = plot.left()   + kx*pt_epoch;
+					drawme_line[i].ry() = plot.bottom() - ky*pt_val;
+				}
+				p.setPen(color.lighter());
+				p.setOpacity(1.0);
 				p.drawPolyline(drawme_line.data(), T);
 			}
 		}
@@ -298,7 +361,7 @@ public:
 		int graph_count = others.size();
 		for (int n=0; n<graph_count; n++) {
 			const shared_ptr<Graph> g = others[n];
-			int P = ((uint32_t*)g->file_N.data())[0];
+			int P = ((uint32_t*)g->file_NT.data())[0];
 			float* h = (float*) g->file_log.data();
 			int losses_count = g->losses.size();
 			for (int l=0; l<losses_count; l++) {
@@ -306,7 +369,7 @@ public:
 				for (int i=0; i<P; ++i) {
 					double x = plot.left() + kx*h[i*HISTORY_STRIDE + 1];
 					if (abs(x - mev->x()) > HISTORY_STRIDE) continue;
-					double y1 = plot.bottom() - ky*h[i*HISTORY_STRIDE + 4+l];
+					double y1 = plot.bottom() - ky*h[i*HISTORY_STRIDE + FIRST_LOSS+l];
 					double y2 = y1;
 					assert(y1 <= y2);
 					double dist = 0;
@@ -328,7 +391,7 @@ public:
 							"time  = %02i:%02i:%02i\n"
 							"lr    = %0.4lf\n",
 							g->losses[l].c_str(),
-							l, double(h[i*HISTORY_STRIDE + 4+l]),
+							l, double(h[i*HISTORY_STRIDE + FIRST_LOSS+l]),
 							int(h[i*HISTORY_STRIDE+0]),
 							double(h[i*HISTORY_STRIDE+1]),
 							int(h[i*HISTORY_STRIDE+2]) / 60 / 60,

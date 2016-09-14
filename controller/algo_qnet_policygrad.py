@@ -284,7 +284,8 @@ class QNetPolicygrad(algo.Algorithm):
         assert isinstance(policy_loss, float), type(policy_loss)
         return [transition_loss, reward_loss, bellman_term/bellman_term_n, bellman_phys/bellman_phys_n, bellman_qlrn/bellman_qlrn_n]
 
-    losses = ["transition", "reward", "bellman_term", "bellman_phys", "bellman_qlrn"]
+    nameof_losses = ["transition", "reward", "bellman_term", "bellman_phys", "bellman_qlrn"]
+    nameof_runind = ["score", "runtime"]
 
     def _save(self, fn):
         self.Q_stable.save_weights(fn + "_qnet.h5", overwrite=True)

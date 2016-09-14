@@ -2,7 +2,7 @@ import numpy as np
 import json, os
 
 class Progress:
-    def __init__(self, dir, task_name, desc, losses):
+    def __init__(self, dir, task_name, desc, losses, runind):
         self.task_name = task_name
         self.dir = dir
         self.N = 0
@@ -18,6 +18,7 @@ class Progress:
         self.mapped_tst = None
         self.desc = desc
         self.losses = losses
+        self.runind = runind
         print("Progress: %s" % self.json_fn)
 
     def _ensure_mapped(self):
@@ -30,8 +31,10 @@ class Progress:
                 print >> f, json.dumps( {
                     "desc": self.desc,
                     "color": "#%x%x%x" % (np.random.randint(0,255), np.random.randint(0,255), np.random.randint(0,255)),
-                    "losses": self.losses,
                     "mmapped_log": self.mapped_log_fn,
+                    "losses": self.losses,
+                    "mmapped_tst": self.mapped_tst_fn,
+                    "runind": self.runind,
                     "mmapped_NT": self.mapped_NT_fn
                     },
                     indent=4, separators=(',', ': '))
