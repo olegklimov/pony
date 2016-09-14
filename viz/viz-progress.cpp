@@ -307,7 +307,7 @@ public:
 			interactives.push_back({ r.adjusted(-2,-2,+2,+2), uint16_t(1<<l), -1 });
 		}
 		QRect desc = rect().adjusted(+MARGIN, +MARGIN, -MARGIN, -MARGIN);
-		desc.setLeft(textover + LOSSES_MAX*(fh+3) + MARGIN*2);
+		desc.setLeft(textover + 2*LOSSES_MAX*(fh+3) + MARGIN*2);
 		desc.setTop(PLOTH + MARGIN);
 		if (hl_n!=-1) {
 			p.setPen(Qt::white);
@@ -371,10 +371,11 @@ public:
 		int graph_count = others.size();
 		for (int n=0; n<graph_count; n++) {
 			const shared_ptr<Graph> g = others[n];
-			int P = ((uint32_t*)g->file_NT.data())[0];
+			//int P = ((uint32_t*)g->file_NT.data())[0];
 			int T = ((uint32_t*)g->file_NT.data())[1];
 			float* h = (float*) g->file_log.data();
 			float* t = (float*) g->file_tst.data();
+			int shorter_N = g->file_log_min.size() / HISTORY_STRIDE;
 			int losses_count = g->losses.size();
 			int runind_count = g->runind.size();
 			for (int l=0; l<2*LOSSES_MAX; l++) {
@@ -382,15 +383,18 @@ public:
 				int q = l-LOSSES_MAX;
 				if (q<0 && l>=losses_count) continue;
 				if (q>=runind_count) continue;
-				for (int i=0; i < (q<0 ? P:T); ++i) {
+				for (int s=0; s < (q<0 ? shorter_N:T); ++s) {
 					double x, y1, y2;
 					float* pointer;
+					int i;
 					if (q<0) {
+						i = s*g->file_log_div;
 						x  = plot.left()   + kx*h[i*HISTORY_STRIDE + 1];
-						y1 = plot.bottom() - ky*h[i*HISTORY_STRIDE + FIRST_LOSS+l];
-						y2 = y1;
+						y1 = plot.bottom() - ky*g->file_log_max[n*HISTORY_STRIDE + FIRST_LOSS+l];
+						y2 = plot.bottom() - ky*g->file_log_min[n*HISTORY_STRIDE + FIRST_LOSS+l];
 						pointer = h;
 					} else {
+						i = s;
 						x  = plot.left()   + kx*t[i*HISTORY_STRIDE + 1];
 						y1 = plot.bottom() - ky*t[i*HISTORY_STRIDE + FIRST_LOSS+q];
 						y2 = y1;
