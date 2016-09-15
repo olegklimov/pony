@@ -158,9 +158,9 @@ public:
 		setMouseTracking(true);
 	}
 
-	void find_maximums(double* max_epoch, double* first_loss)
+	void find_maximums(double* max_iter, double* first_loss)
 	{
-		float e = 10;
+		float maxi = 10000;
 		int graph_count = others.size();
 		for (int n=0; n<graph_count; n++) {
 			const shared_ptr<Graph> g = others[n];
@@ -168,10 +168,10 @@ public:
 				g->reopen();
 			int T = ((uint32_t*)g->file_NT.data())[0];
 			float* h = (float*) g->file_log.data();
-			float epoch = h[(T-1)*HISTORY_STRIDE + 1];
-			e = std::max(epoch, e);
+			float i = h[(T-1)*HISTORY_STRIDE + 0];
+			maxi = std::max(i, maxi);
 		}
-		*max_epoch = 1 + int(e);
+		*max_iter = 1 + int(maxi);
 		*first_loss = 1.0;
 		*first_loss = fixed_scale;
 	}
@@ -185,7 +185,7 @@ public:
 		QPainter p(this);
 		p.fillRect(rect(), Qt::black);
 		const int MARGIN = 10;
-		double max_epoch;
+		double max_iter;
 		double first_loss;
 
 		int graph_count = others.size();
@@ -197,17 +197,17 @@ public:
 			}
 		}
 
-		find_maximums(&max_epoch, &first_loss);
+		find_maximums(&max_iter, &first_loss);
 
 		double PLOTH = 650;
 		plot = QRect(MARGIN, MARGIN, rect().width() - 2*MARGIN, PLOTH - 2*MARGIN);
 		p.fillRect(plot, QColor(0x303030));
-		kx = plot.width()  / max_epoch;
+		kx = plot.width()  / max_iter;
 		ky = plot.height() / first_loss;
 		p.setClipRect(plot);
 		p.setPen(Qt::black);
 		for (int e=1; e<1000; e++) {
-			double x = plot.left() + kx*e;
+			double x = plot.left() + kx*e*10000;
 			if (x > plot.right()) break;
 			p.drawLine(QPointF(x,plot.top()), QPointF(x,plot.bottom()));
 		}
@@ -234,10 +234,10 @@ public:
 				if (!(losses_visible[n] & (1<<l))) continue;
 				for (int s=0; s<shorter_N; ++s) {
 					int i = s*g->file_log_div;
-					double pt_epoch     = h[HISTORY_STRIDE*i + 1];
-					drawme_area[s              ].rx() = plot.left()   + kx*pt_epoch;
+					double pt_iter = h[HISTORY_STRIDE*i + 0];
+					drawme_area[s              ].rx() = plot.left()   + kx*pt_iter;
 					drawme_area[s              ].ry() = plot.bottom() - ky*g->file_log_max[s*HISTORY_STRIDE + FIRST_LOSS+l];
-					drawme_area[2*shorter_N-s-1].rx() = plot.left()   + kx*pt_epoch;
+					drawme_area[2*shorter_N-s-1].rx() = plot.left()   + kx*pt_iter;
 					drawme_area[2*shorter_N-s-1].ry() = plot.bottom() - ky*g->file_log_min[s*HISTORY_STRIDE + FIRST_LOSS+l];
 				}
 				p.setPen(color);
@@ -250,9 +250,9 @@ public:
 			for (int l=0; l<runind_count; l++) {
 				if (!(losses_visible[n] & (1<<(l+LOSSES_MAX)))) continue;
 				for (int i=0; i<T; ++i) {
-					double pt_epoch     = t[HISTORY_STRIDE*i + 1];
-					double pt_val       = t[HISTORY_STRIDE*i + FIRST_LOSS+l];
-					drawme_line[i].rx() = plot.left()   + kx*pt_epoch;
+					double pt_iter = t[HISTORY_STRIDE*i + 0];
+					double pt_val  = t[HISTORY_STRIDE*i + FIRST_LOSS+l];
+					drawme_line[i].rx() = plot.left()   + kx*pt_iter;
 					drawme_line[i].ry() = plot.bottom() - ky*pt_val;
 				}
 				p.setPen(color.lighter());
@@ -389,13 +389,13 @@ public:
 					int i;
 					if (q<0) {
 						i = s*g->file_log_div;
-						x  = plot.left()   + kx*h[i*HISTORY_STRIDE + 1];
+						x  = plot.left()   + kx*h[i*HISTORY_STRIDE + 0];
 						y1 = plot.bottom() - ky*g->file_log_max[n*HISTORY_STRIDE + FIRST_LOSS+l];
 						y2 = plot.bottom() - ky*g->file_log_min[n*HISTORY_STRIDE + FIRST_LOSS+l];
 						pointer = h;
 					} else {
 						i = s;
-						x  = plot.left()   + kx*t[i*HISTORY_STRIDE + 1];
+						x  = plot.left()   + kx*t[i*HISTORY_STRIDE + 0];
 						y1 = plot.bottom() - ky*t[i*HISTORY_STRIDE + FIRST_LOSS+q];
 						y2 = y1;
 						pointer = t;
