@@ -163,5 +163,5 @@ def batch(BATCH_SIZE):
         assert( len(buf)==BATCH_SIZE )
         global epoch_sample_counter, epoch
         epoch_sample_counter += BATCH_SIZE
-        epoch = float(epoch_sample_counter) / len(replay)
+        epoch += float(BATCH_SIZE) / len(replay)
     return buf

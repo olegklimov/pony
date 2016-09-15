@@ -21,9 +21,14 @@ class Algorithm:
         self.progress_last_epoch = 0
         self.time_start = time.time()
 
+    def _test_still_need_random_policy(self):
+        pass
+
     def learn_thread_func(self):
+        self._test_still_need_random_policy()
         while 1:
             while (self.use_random_policy or self.pause) and not self.quit and not self.dry_run:
+                self._test_still_need_random_policy()
                 time.sleep(0.1)
             if self.quit:
                 break
@@ -36,6 +41,7 @@ class Algorithm:
         losses_array = self._learn_iteration(buf, dry_run)
         if not self.dry_run:
             self.iter_counter += 1
+        if losses_array is None: return
 
         epoch_int = int(xp.epoch)
         if epoch_int != self.progress_last_epoch or True:
@@ -69,3 +75,5 @@ class Algorithm:
 
     def load_something_useful_on_start(self, fn):
         pass
+
+

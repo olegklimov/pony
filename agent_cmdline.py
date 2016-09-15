@@ -39,7 +39,9 @@ print("Prefix: {}".format(prefix))
 print("Experiment: {}".format(experiment_name))
 
 dir_jpeg = dir + "/" + prefix
-dir_jpeg_created = False
+try: shutil.rmtree(dir_jpeg)
+except: pass
+os.makedirs(dir_jpeg)
 
 if args.loadxp:
     for x in args.loadxp:
@@ -64,8 +66,8 @@ env = make_env()
 if xp.STATE_DIM==0:
     xp.init_from_env(env)
 
-try: xp.export_viz_open(dir, "r+")
-except: xp.export_viz_open(dir, "w+")
+try: xp.export_viz_open(dir_jpeg, "r+")
+except: xp.export_viz_open(dir_jpeg, "w+")
 
 if args.viz_only:
     sys.exit(0)
@@ -116,7 +118,7 @@ def key_press(key, mod):
     elif key==kk.F3:
         alg.load(dir + "/_weights")
         with xp.replay_mutex:
-            xp.export_viz_open(dir, "r+")
+            xp.export_viz_open(dir_jpeg, "r+")
     elif key==ord("j"):
         human_records_xp = not human_records_xp
         print("record=%i prefix=%s" % (human_records_xp, prefix))
@@ -207,12 +209,6 @@ def rollout():
 
         if human_records_xp and (global_step_counter % 5 == 0 or done):
             rgb = env.render("rgb_array")
-            global dir_jpeg_created
-            if not dir_jpeg_created:
-                dir_jpeg_created = True
-                try: shutil.rmtree(dir_jpeg)
-                except: pass
-                os.makedirs(dir_jpeg)
             jpeg_name = dir_jpeg + "/{:05}".format(global_step_counter)
             scipy.misc.imsave(jpeg_name, rgb, format="jpeg")
             pt.jpeg = jpeg_name
@@ -229,7 +225,7 @@ def rollout():
         with xp.replay_mutex:
             xp.replay.extend(track)
             xp.shuffle()
-            xp.export_viz_open(dir, "r+")
+            xp.export_viz_open(dir_jpeg, "r+")
             print("now replay buffer have %i samples" % len(xp.replay))
             alg.reset(True)
         wait_t1 = time.time()

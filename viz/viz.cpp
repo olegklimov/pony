@@ -11,6 +11,7 @@
 
 #include <boost/shared_ptr.hpp>
 #include <boost/thread/thread.hpp>
+#include <boost/filesystem.hpp>
 #include <boost/iostreams/device/mapped_file.hpp>
 
 #include <GL/glu.h>
@@ -32,6 +33,7 @@ public:
 	QTabWidget* tabbed;
 
 	QWidget* page_3d;
+	QComboBox* season_combo;
 	QSpinBox* axis[4];
 	QRadioButton* mode_s_vn;
 	QRadioButton* mode_target;
@@ -46,7 +48,7 @@ public:
 
 	VizWindow(const std::string& dir):
 		QWidget(0),
-		dir(dir)
+		env_dir(dir)
 	{
 		timer = new QTimer(this);
 		QObject::connect(timer, SIGNAL(timeout()), this, SLOT(timeout()));
@@ -69,11 +71,15 @@ public:
 		QVBoxLayout* vbox = new QVBoxLayout();
 		setLayout(vbox);
 		vbox->addWidget(tabbed);
+
+		season_combo_refresh();
+		season_combo_changed();
+		timeout();
 	}
 
 	void create_progress_page()
 	{
-		page_progress = progress_widget_create(dir + "/progress");
+		page_progress = progress_widget_create(env_dir + "/progress");
 		QGridLayout* grid = new QGridLayout();
 		page_progress->setLayout(grid);
 	}
@@ -85,6 +91,11 @@ public:
 		page_3d->setLayout(grid);
 
 		int row = 0;
+		season_combo = new QComboBox();
+		grid->addWidget(season_combo, row, 0, 1, 2);
+		QObject::connect(season_combo, SIGNAL(currentIndexChanged(int)), this, SLOT(season_combo_changed()));
+		row++;
+
 		grid->addWidget(new QLabel("Z range:"), row, 0);
 		z_range = new QDoubleSpinBox();
 		z_range->setRange(0.1, 1000000);
@@ -155,9 +166,6 @@ public:
 
 		viz_widget = new Viz();
 		grid->addWidget(viz_widget, 0, 2, row+1, 1);
-		viz_widget->reopen(dir);
-
-		timeout();
 	}
 
 	~VizWindow()
@@ -177,9 +185,50 @@ public:
 		ini->setValue("timefilter_t2", timefilter_t2->value());
 	}
 
-	std::string dir;
+	void season_combo_refresh()
+	{
+		std::map<std::time_t, boost::filesystem::path> sorted;
+		boost::filesystem::directory_iterator end;
+		for (boost::filesystem::directory_iterator i(env_dir); i!=end; ++i) {
+			boost::filesystem::path fn = i->path();
+			if (boost::filesystem::is_directory(fn) && fn.stem()!="progress") {
+				boost::system::error_code ec;
+				std::time_t m = boost::filesystem::last_write_time(fn / "mmap_N", ec);
+				if (ec) continue;
+				sorted[m] = fn;
+			}
+		}
+		season_combo->blockSignals(true);
+		season_combo->clear();
+		int select = -1;
+		int cnt = 0;
+		for (const std::pair<std::time_t, boost::filesystem::path>& p: sorted) {
+			std::string dir = p.second.string();
+			season_combo->addItem(
+				QString::fromUtf8(p.second.stem().string().c_str()),
+				QVariant(QString::fromUtf8( dir.c_str() ))
+				);
+			if (dir==season_dir) select = cnt;
+			cnt++;
+		}
+		season_combo->setCurrentIndex(select);
+		season_combo->blockSignals(false);
+		if (select==-1)
+			season_combo->setCurrentIndex(cnt-1); // select most recent if no choice yet
+	}
+
+	std::string env_dir;
+	std::string season_dir;
 
 public slots:
+	void season_combo_changed()
+	{
+		QVariant data = season_combo->itemData(season_combo->currentIndex());
+		season_dir = data.toString().toUtf8().data();
+		fprintf(stderr, "switch to '%s'\n", season_dir.c_str());
+		viz_widget->reopen(season_dir);
+	}
+
 	void timeout()
 	{
 		if (viz_widget) {
@@ -200,8 +249,9 @@ public slots:
 
 	void timeout_long()
 	{
+		season_combo_refresh();
 		if (page_3d->isVisible())
-			viz_widget->reopen(dir);
+			viz_widget->reopen(season_dir);
 		if (page_progress->isVisible())
 			progress_widget_rescan_dir(page_progress);
 	}

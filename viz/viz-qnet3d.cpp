@@ -162,6 +162,7 @@ struct Quiver {
 		bool mode_target
 		)
 	{
+		if (!file_N.is_open()) return;
 		int new_N = ((int*)file_N.data())[0];
 		if (new_N!=N) {
 			STATEDIM = file_s.size() / file_v.size();
@@ -279,6 +280,7 @@ struct Quiver {
 
 	void actions_reprocess(float w, float h, float z_range1)
 	{
+		if (!file_N.is_open()) return;
 		int new_action_dim = file_action_online.size() / sizeof(float);
 		if (new_action_dim!=ACTION_DIM) {
 			ACTION_DIM = new_action_dim;
@@ -456,7 +458,7 @@ void Viz::paintGL()
 	closest_rend = -1;
 	double closest_dist = 60;
 
-	if (q) {
+	if (q && q->file_N.is_open()) {
 		const char* jpeg = (const char*) q->file_jpeg.data();
 		int mid_h = rect().height();
 		std::array<GLdouble, 16> projection;
@@ -608,8 +610,12 @@ void Viz::reopen(const std::string& dir)
 	if (!q) {
 		q.reset(new Quiver);
 	}
-	q->close();
-	q->open(dir);
+	try {
+		q->close();
+		q->open(dir);
+	} catch (const std::exception& e) {
+		fprintf(stderr, "Viz::reopen(): %s\n", e.what());
+	}
 }
 
 void Viz::reprocess(

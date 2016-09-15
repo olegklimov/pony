@@ -117,12 +117,7 @@ class QNetPolicygrad(algo.Algorithm):
             elif self.demo_policy_tolearn % 100 == 0:
                 print("%05i supervised demo learn %0.4f" % (self.demo_policy_tolearn, loss))
 
-    def _learn_iteration(self, buf, dry_run):
-        if self.demo_policy_tolearn > 0 and not dry_run:
-            self.demo_policy_tolearn -= 1
-            self._learn_demo_policy_supervised(buf, dry_run)
-            return
-
+    def _test_still_need_random_policy(self):
         if self.use_random_policy:
             N = len(xp.replay)
             self.N = N
@@ -131,7 +126,13 @@ class QNetPolicygrad(algo.Algorithm):
                 print("have %i random samples, start learning" % N)
             else:
                 self.demo_policy_tolearn = 0  # random action taken, supervised demo learning not applicable
-                return
+
+    def _learn_iteration(self, buf, dry_run):
+        if self.demo_policy_tolearn > 0 and not dry_run:
+            self.demo_policy_tolearn -= 1
+            self._learn_demo_policy_supervised(buf, dry_run)
+            return
+        if self.use_random_policy: return
 
         BATCH = len(buf)
         assert(self.BATCH==BATCH)
@@ -317,16 +318,16 @@ class QNetPolicygrad(algo.Algorithm):
         "xp.replay_mutex must be locked"
         count = len(xp.replay)
         if count > 0:
-            print "BALL TREE %i POINTS" % count
+            #print "BALL TREE %i POINTS" % count
             STATE_DIM = xp.STATE_DIM
             ACTION_DIM = xp.ACTION_DIM
             X = np.zeros( (count, STATE_DIM+ACTION_DIM)  )
             for i in range(count):
                 X[i][:STATE_DIM] = xp.replay[i].s
                 X[i][STATE_DIM:] = xp.replay[i].a
-            print "--"
+            #print "--"
             self.neighbours = BallTree(X)
-            print "/BALL TREE"
+            #print "/BALL TREE"
 
     def _control(self, s, action_space):
         if self.pause:
