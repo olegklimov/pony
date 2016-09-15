@@ -165,8 +165,8 @@ class QNetPolicygrad(algo.Algorithm):
             x.vn = vn[i][0]
 
         # WIRES, good only for deterministic environments
+        N = len(xp.replay)
         if self.countdown==0 and False:
-            N = len(xp.replay)
             self.N = N
             total_reward = 0
             value = 0
