@@ -37,11 +37,15 @@ class Algorithm:
                 if xp.epoch > 1: self.dry_run = False
 
     def run_single_learn_iteration(self, dry_run):
+        t1 = time.time()
         buf = xp.batch(self.BATCH)
+        t2 = time.time()
         losses_array = self._learn_iteration(buf, dry_run)
         if not self.dry_run:
             self.iter_counter += 1
         if losses_array is None: return
+        t3 = time.time()
+        #print "%0.2fms = %0.2fms batch + %0.2fms iteration" % ( 1000*(t3-t1), 1000*(t2-t1), 1000*(t3-t2) )
 
         epoch_int = int(xp.epoch)
         if epoch_int != self.progress_last_epoch or True:

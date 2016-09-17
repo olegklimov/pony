@@ -2,7 +2,7 @@ import algo
 import xp
 import transition_model
 
-import numpy as np
+import numpy as np, time
 import keras
 import keras.models
 from keras import backend as K
@@ -128,6 +128,7 @@ class QNetPolicygrad(algo.Algorithm):
                 self.demo_policy_tolearn = 0  # random action taken, supervised demo learning not applicable
 
     def _learn_iteration(self, buf, dry_run):
+        t0 = time.time()
         if self.demo_policy_tolearn > 0 and not dry_run:
             self.demo_policy_tolearn -= 1
             self._learn_demo_policy_supervised(buf, dry_run)
@@ -163,6 +164,7 @@ class QNetPolicygrad(algo.Algorithm):
         for i,x in enumerate(buf):
             x.v  = v[i][0]
             x.vn = vn[i][0]
+        t1 = time.time()
 
         # WIRES, good only for deterministic environments
         N = len(xp.replay)
@@ -210,7 +212,8 @@ class QNetPolicygrad(algo.Algorithm):
                     x.target_v = x.r    # nail final point
                     stuck = False
                     sample_weight[i] = 10.0
-                    bellman_term += abs(x.target_v - vpolicy[i][0])
+                    bellman = abs(x.target_v - vpolicy[i][0])
+                    bellman_term += bellman
                     bellman_term_n += 1
                 elif physics or stuck:
                     # use physics model, predicted sp, rp
@@ -218,14 +221,16 @@ class QNetPolicygrad(algo.Algorithm):
                     a[i]  = apolicy[i]
                     #x.target_v = max(x.wires_v, rp[i] + self.GAMMA*vp[i])
                     x.target_v = rp[i][0] + self.GAMMA*vp[i][0]
-                    bellman_phys += abs(x.target_v - vpolicy[i][0])
+                    bellman = abs(x.target_v - vpolicy[i][0])
+                    bellman_phys += bellman
                     bellman_phys_n += 1
                 else:
                     # Q-learning
                     st[i] = sn[i]
                     #x.target_v = max(x.wires_v, x.r   + self.GAMMA*x.vn)
                     x.target_v = x.r   + self.GAMMA*x.vn
-                    bellman_qlrn += abs(x.target_v - x.v)
+                    bellman = abs(x.target_v - x.v)
+                    bellman_qlrn += bellman
                     bellman_qlrn_n += 1
 
                 vt[i,0] = x.target_v
@@ -244,6 +249,7 @@ class QNetPolicygrad(algo.Algorithm):
                 xp.export_viz.vt[x.viz_n] = vt[i]
                 xp.export_viz.step[x.viz_n] = x.step
                 xp.export_viz.episode[x.viz_n] = x.episode
+                x.bellman_weights[x.viz_n] = bellman
 
                 # s / vn            -- clear
                 # target / target   -- used for learning xp or transition / target
@@ -259,6 +265,7 @@ class QNetPolicygrad(algo.Algorithm):
                 # vp
                 # st = (sn or sp)                             -- target
                 # vt = (rxp+GAMMA*Q(xp) or rp+GAMMA*Q(sp))
+        t2 = time.time()
 
         xp.export_viz.N[0] = self.N
 
@@ -283,6 +290,9 @@ class QNetPolicygrad(algo.Algorithm):
         assert isinstance(bellman_qlrn + bellman_phys + bellman_term, float)
         assert isinstance(transition_loss, float), type(transition_loss)
         assert isinstance(policy_loss, float), type(policy_loss)
+        t3 = time.time()
+        print "time eval=%0.2fms target=%0.2fms learn=%0.2fms total=%0.2fms" % (1000*(t1-t0), 1000*(t2-t1), 1000*(t3-t2), 1000*(t3-t0))
+
         return [transition_loss, reward_loss, bellman_term/bellman_term_n, bellman_phys/bellman_phys_n, bellman_qlrn/bellman_qlrn_n]
 
     nameof_losses = ["transition", "reward", "bellman_term", "bellman_phys", "bellman_qlrn"]

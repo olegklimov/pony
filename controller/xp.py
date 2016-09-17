@@ -1,4 +1,4 @@
-import numpy as np
+import numpy as np, time
 
 STATE_DIM   = 0  # Dimensionality of s, determined from environment
 ACTION_DIM  = 0  # Dimensionality of a, actions represented as single-hot vector, i.e. [0,0,0,0,1,0,0] for 4-th action
@@ -40,6 +40,7 @@ class XPoint:
 
         self.v = 0
         self.vn = 0
+        self.bellman = 1
 
     def to_jsonable(self):
         j = { "s": self.s.tolist(), "sn": self.sn.tolist(), "a": self.a.tolist(), "r": self.r, "step": self.step }
@@ -121,7 +122,7 @@ def export_viz_open(dir, mode="w+"):
         export_viz.step[x.viz_n] = x.step
         if x.jpeg:
             import os
-            j = x.jpeg[len(dir)+1:]
+            j = x.jpeg[x.jpeg.find('/')+1:]
             assert len(j) <= 15, "'%s' too long" % j
             for c in range(len(j)):
                 export_viz.jpeg[x.viz_n*16 + c] = ord(j[c])
@@ -131,37 +132,47 @@ def export_viz_open(dir, mode="w+"):
 
 def shuffle():
     'with replay_mutex'
-    global replay_shuffled
+    global replay_shuffled, replay_idx
     import random
     N = len(replay)
+    bellman_weights = np.ones( shape=(N,) )
     for n in range(N):
         replay[n].viz_n = n
+        replay[n].bellman_weights = bellman_weights
+        replay[n].bellman_weights[n] = replay[n].bellman
     replay_shuffled = replay[:]
     random.shuffle(replay_shuffled)
+    replay_idx = np.arange(N, dtype=np.int32)
 
 def batch(BATCH_SIZE):
     with replay_mutex:
+        t0 = time.time()
         N = len(replay_shuffled)
         if N==0: return []
         half_replay = N // 2
         buf = []
-        while len(buf) < BATCH_SIZE:
+        go_round_size = BATCH_SIZE * 3 // 4
+
+        while len(buf) < go_round_size:
             x = replay_shuffled.pop(0)
             buf.append(x)
-            #if not x.important and len(buf) < BATCH_SIZE//3: # half will be important samples
-                #print x.sampled_counter
-            #    continue
             x.sampled_counter += 1
-            #if x.important:
-            #    replay_shuffled[half_replay:half_replay] = [x]
-                #print len(replay_shuffled)
-                #replay_shuffled.append(x)
-                #replay_shuffled.insert(half_replay, x)
-            #else:
             replay_shuffled.append(x)
-        #print [x.sampled_counter for x in buf], len(replay_shuffled)
+
+        t00 = time.time()
+        bellman_proportional_size = BATCH_SIZE - go_round_size
+        bellman_sum = np.sum(replay[0].bellman_weights)
+        probabilities = replay[0].bellman_weights / bellman_sum
+        t1 = time.time()
+        choice = np.random.choice( replay_idx, size=bellman_proportional_size, replace=False, p=probabilities )
+        t2 = time.time()
+        buf += [replay[x] for x in choice]
+        t3 = time.time()
+        #print "time choice=%0.2fms []=%0.2fms part2=%0.2fms total=%0.2fms" % (1000*(t2-t1), 1000*(t3-t2), 1000*(t3-t00), 1000*(t3-t0))
+
         assert( len(buf)==BATCH_SIZE )
         global epoch_sample_counter, epoch
         epoch_sample_counter += BATCH_SIZE
-        epoch += float(BATCH_SIZE) / len(replay)
+        epoch += float(go_round_size) / len(replay)
+
     return buf

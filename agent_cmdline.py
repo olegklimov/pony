@@ -145,6 +145,7 @@ if "env" in env.__dict__: env.viewer = env.env.viewer
 env.viewer.window.on_key_press = key_press
 env.viewer.window.on_key_release = key_release
 env.viewer.window.on_close = close
+env.viewer.window.set_caption(prefix)
 global_step_counter = 0
 
 # before starting a thread, check if everything works in main thread.
