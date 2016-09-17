@@ -148,7 +148,7 @@ def batch(BATCH_SIZE):
     with replay_mutex:
         t0 = time.time()
         N = len(replay_shuffled)
-        if N==0: return []
+        if N < BATCH_SIZE: return []
         half_replay = N // 2
         buf = []
         go_round_size = BATCH_SIZE * 3 // 4

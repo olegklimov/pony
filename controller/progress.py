@@ -30,7 +30,7 @@ class Progress:
             with open(self.json_fn, "wb") as f:
                 print >> f, json.dumps( {
                     "desc": self.desc,
-                    "color": "#%x%x%x" % (np.random.randint(0,255), np.random.randint(0,255), np.random.randint(0,255)),
+                    "color": "#%02x%02x%02x" % (np.random.randint(0,255), np.random.randint(0,255), np.random.randint(0,255)),
                     "mmapped_log": self.mapped_log_fn,
                     "losses": self.losses,
                     "mmapped_tst": self.mapped_tst_fn,
