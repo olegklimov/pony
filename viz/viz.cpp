@@ -226,7 +226,7 @@ public slots:
 		QVariant data = season_combo->itemData(season_combo->currentIndex());
 		season_dir = data.toString().toUtf8().data();
 		fprintf(stderr, "switch to '%s'\n", season_dir.c_str());
-		viz_widget->reopen(season_dir);
+		viz_widget->reopen(env_dir, season_dir);
 	}
 
 	void timeout()
@@ -251,7 +251,7 @@ public slots:
 	{
 		season_combo_refresh();
 		if (page_3d->isVisible())
-			viz_widget->reopen(season_dir);
+			viz_widget->reopen(env_dir, season_dir);
 		if (page_progress->isVisible())
 			progress_widget_rescan_dir(page_progress);
 	}

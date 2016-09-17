@@ -21,7 +21,7 @@ public:
 		int axis1, int axis2, int axis3, int axis4,
 		int timefilter_t1, int timefilter_t2,
 		bool mode_transition, bool mode_policy, bool mode_target);
-	void reopen(const std::string& dir);
+	void reopen(const std::string& env_dir, const std::string& dir);
 	void actions_reprocess(
 		double z_range);
 	void timeout();

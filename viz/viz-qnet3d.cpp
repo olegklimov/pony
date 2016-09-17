@@ -50,10 +50,12 @@ struct Quiver {
 	std::vector<float> vcolor; // r g b
 	std::vector<int> rendered2index;
 	std::string dir;
+	std::string env_dir;
 
-	void open(const std::string& dir_)
+	void open(const std::string& env_dir_, const std::string& dir_)
 	{
 		dir = dir_;
+		env_dir = env_dir_;
 		file_N.open(dir + "/mmap_N");
 		file_s .open(dir + "/mmap_s");
 		file_v .open(dir + "/mmap_v");
@@ -110,7 +112,7 @@ struct Quiver {
 	{
 		assert(n<N);
 		const char* jpeg = (const char*) file_jpeg.data();
-		return dir + "/" + (jpeg + 16*n); // ".BipedalWalker-v2/z00020.jpg"
+		return env_dir + "/" + (jpeg + 16*n); // ".BipedalWalker-v2/z00020.jpg"
 	}
 
 	float val_from_axis(float* s, float xy_range1, int axis, int step, float step_f, float step_k, float V, float V_range1, bool mode_transition)
@@ -170,7 +172,7 @@ struct Quiver {
 			render_N = 0;
 			printf("N=%i STATEDIM=%i\n", N, STATEDIM);
 			close();
-			open(dir);
+			open(env_dir, dir);
 		}
 		if (N==0) return;
 		float* s1 = (float*) file_s.data();
@@ -605,14 +607,14 @@ void Viz::mouseMoveEvent(QMouseEvent* mev)
 	}
 }
 
-void Viz::reopen(const std::string& dir)
+void Viz::reopen(const std::string& env_dir, const std::string& dir)
 {
 	if (!q) {
 		q.reset(new Quiver);
 	}
 	try {
 		q->close();
-		q->open(dir);
+		q->open(env_dir, dir);
 	} catch (const std::exception& e) {
 		fprintf(stderr, "Viz::reopen(): %s\n", e.what());
 	}
