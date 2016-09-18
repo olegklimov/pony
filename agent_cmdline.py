@@ -161,12 +161,13 @@ learn_thread.start()
 def testrun_rollout():
     "instead of sleeping, run a test, post score to progress log"
     env2 = make_env()
+    pi = alg.export_policy()
     score = 0
     ts = 0
     sn = env2.reset()
     while 1:
         s = sn
-        a = alg.control(s, env2.action_space)
+        a = pi(s)   # a = alg.control(s, env2.action_space)
         sn, r, done, info = env2.step(a)
         if ts > env2.spec.timestep_limit / args.frameskip:
             done = True
