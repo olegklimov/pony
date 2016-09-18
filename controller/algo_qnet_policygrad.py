@@ -68,7 +68,7 @@ class QNetPolicygrad(algo.Algorithm):
             #    ], mode='sum' )
 
             Qmod = Model( input=[inp_s,inp_a], output=out_tensor )
-            Qmod.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
+            Qmod.compile(loss='mse', optimizer=Adam(lr=0.0001, beta_2=0.9999))
             return [v1,v2,v_out, a1,a2,a_out], Qmod
 
         stable_trainable, self.Q_stable = qmodel()
@@ -80,7 +80,7 @@ class QNetPolicygrad(algo.Algorithm):
         def only_up(y_true, y_pred):
             return K.mean( -y_pred, axis=-1 )
         def close_to_previous_policy(act_previous, a_act_predicted):
-            return 0.001*K.mean(K.square(a_act_predicted - act_previous), axis=-1)
+            return 0.000*K.mean(K.square(a_act_predicted - act_previous), axis=-1)
 
         def policy_net(inp_s):
             d1 = Dense(320, activation='relu', W_regularizer=l2(0.01))
@@ -90,7 +90,7 @@ class QNetPolicygrad(algo.Algorithm):
             out_action = clamp(out( d2(d1(inp_s)) ))
             value_of_s = self.Q_stable( [inp_s,out_action] )
             action = Model( input=[inp_s], output=out_action )
-            action.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))  # really optimal values here
+            action.compile(loss='mse', optimizer=Adam(lr=0.0001, beta_2=0.9999))  # really optimal values here
             value  = Model( input=[inp_s], output=[out_action,value_of_s] )
             value.compile(loss=[close_to_previous_policy,only_up], optimizer=Adam(lr=0.0005, beta_2=0.9999))
             return action, value
@@ -155,38 +155,19 @@ class QNetPolicygrad(algo.Algorithm):
         with self.stable_mutex:
             v = self.Q_stable.predict( [s,a] )
             an, vn  = self.online_policy_value.predict(sn)    # action at sn
-            #apolicy = self.online_policy_action.predict(s)    # action at s
-            apolicy, vpolicy = self.online_policy_value.predict(s)
-            #apolicy += np.random.uniform(low=-ACTION_DISPERSE, high=ACTION_DISPERSE, size=(BATCH,xp.ACTION_DIM))
-            #apolicy  = np.clip(apolicy, -1, +1)
-            sp, rp  = self.trans.predict(s, apolicy)          # predicted state and reward from transition model
-            ap, vp  = self.online_policy_value.predict(sp)    # action at sp
+            apolicy = self.online_policy_action.predict(s)    # action at s
+            apolicy_noisy = apolicy + np.random.uniform(low=-ACTION_DISPERSE, high=ACTION_DISPERSE, size=(BATCH,xp.ACTION_DIM))
+            apolicy_noisy = np.clip(apolicy_noisy, -1, +1)
+            vpolicy = self.Q_stable.predict( [s,apolicy_noisy] )
+            sp, rp  = self.trans.predict(s, apolicy_noisy)    # predicted state and reward from transition model
+            ap, vp  = self.online_policy_value.predict(sp)    # action at sp, uses Q_stable inside
         for i,x in enumerate(buf):
             x.v  = v[i][0]
             x.vn = vn[i][0]
         t1 = time.time()
 
-        # WIRES, good only for deterministic environments
         N = len(xp.replay)
         self.N = N
-        if self.countdown==0 and False:
-            total_reward = 0
-            value = 0
-            episode = 0
-            for i in range(N-1,-1,-1):
-                x = xp.replay[i]
-                if x.terminal:
-                    value = 0
-                    total_reward = 0
-                    episode += 1
-                x.episode = episode
-                value = value*self.GAMMA + x.r
-                #value = max(value, x.vn)
-                x.wires_v = value
-                if x.r>0: total_reward += x.r
-            self.countdown = 20
-        else:
-            self.countdown -= 1
 
         # target and viz
         X = np.zeros( (1,STATE_DIM+xp.ACTION_DIM,)  )
@@ -202,16 +183,20 @@ class QNetPolicygrad(algo.Algorithm):
                 X[0][:STATE_DIM] = x.sn
                 X[0][STATE_DIM:] = an[i]
                 count = self.neighbours.query_radius(X, r=0.1, count_only=True)[0]
+                count = 0
                 physics = np.random.randint(count+0, count+10) < 5
+                #physics = True
                 stuck   = np.linalg.norm(x.s - x.sn) < 0.01
                 #print "count=%i, physics=%s, stuck=%i" % (count, physics, stuck)
                 if x.terminal and np.abs(x.r) > CRASH_OR_WIN_THRESHOLD:
                     # crash or win
                     st[i] = s[i]
-                    a[i]  = apolicy[i]  # doesn't matter much, but give it harder task
+                    a[i]  = apolicy_noisy[i]  # doesn't matter much, but give it harder task
+                    old_v = vpolicy[i][0]
                     x.target_v = x.r    # nail final point
                     stuck = False
-                    sample_weight[i] = 10.0
+                    physics = False
+                    #sample_weight[i] = 1.0
                     bellman = abs(x.target_v - vpolicy[i][0])
                     bellman_term += bellman
                     bellman_term_n += 1
@@ -219,16 +204,16 @@ class QNetPolicygrad(algo.Algorithm):
                     # use physics model, predicted sp, rp
                     st[i] = sp[i]
                     a[i]  = apolicy[i]
-                    #x.target_v = max(x.wires_v, rp[i] + self.GAMMA*vp[i])
                     x.target_v = rp[i][0] + self.GAMMA*vp[i][0]
+                    old_v = vpolicy[i][0]
                     bellman = abs(x.target_v - vpolicy[i][0])
                     bellman_phys += bellman
                     bellman_phys_n += 1
                 else:
                     # Q-learning
                     st[i] = sn[i]
-                    #x.target_v = max(x.wires_v, x.r   + self.GAMMA*x.vn)
                     x.target_v = x.r   + self.GAMMA*x.vn
+                    old_v = x.v
                     bellman = abs(x.target_v - x.v)
                     bellman_qlrn += bellman
                     bellman_qlrn_n += 1
@@ -240,13 +225,14 @@ class QNetPolicygrad(algo.Algorithm):
                 if stuck:   sample_weight[i] = 0.0
                 xp.export_viz.flags[x.viz_n] = f
                 xp.export_viz.s[x.viz_n]  = x.s
-                xp.export_viz.v[x.viz_n]  = x.v
+                xp.export_viz.vs[x.viz_n] = x.v
+                xp.export_viz.v[x.viz_n]  = old_v
                 xp.export_viz.sn[x.viz_n] = x.sn
                 xp.export_viz.vn[x.viz_n] = x.vn
                 xp.export_viz.sp[x.viz_n] = sp[i]
-                xp.export_viz.vp[x.viz_n] = vp[i]
+                xp.export_viz.vp[x.viz_n] = vp[i][0]
                 xp.export_viz.st[x.viz_n] = st[i]
-                xp.export_viz.vt[x.viz_n] = vt[i]
+                xp.export_viz.vt[x.viz_n] = vt[i][0]
                 xp.export_viz.step[x.viz_n] = x.step
                 xp.export_viz.episode[x.viz_n] = x.episode
                 x.bellman_weights[x.viz_n] = bellman
@@ -279,8 +265,7 @@ class QNetPolicygrad(algo.Algorithm):
                 loss = self.Q_online.train_on_batch( [s, a], vt, sample_weight=sample_weight )
             #test1 = self.Q_stable.test_on_batch( [s, a], vt )
             with self.stable_mutex:
-                stable_policy_a = self.stable_policy_action.predict(s)
-                policy_loss = self.online_policy_value.train_on_batch(s, [stable_policy_a,vt])  # vt target not used, see only_up()
+                policy_loss = self.online_policy_value.train_on_batch(s, [apolicy,vt])  # vt target not used, see only_up()
                 policy_loss = float(policy_loss[0])   # [loss, close_to_previous_policy, only_up], print self.online_policy_value.metrics_names
             #test2 = self.Q_stable.test_on_batch( [s, a], vt )
             #print("test1", test1, "test2", test2)  # test2 must be equal to test1, otherwise we're learning not only policy, but Q too.
@@ -340,8 +325,6 @@ class QNetPolicygrad(algo.Algorithm):
             #print "/BALL TREE"
 
     def _control(self, s, action_space):
-        if self.pause:
-            return self.stable_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
         if self.use_random_policy:
             return action_space.sample()
 

@@ -81,6 +81,7 @@ class ExportViz:
         more_N = N + 1000
         self.s  = np.memmap(dir+"/mmap_s",  mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
         self.v  = np.memmap(dir+"/mmap_v",  mode=mode, shape=(more_N,), dtype=np.float32)
+        self.vs = np.memmap(dir+"/mmap_vs", mode=mode, shape=(more_N,), dtype=np.float32)
         self.sn = np.memmap(dir+"/mmap_sn", mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
         self.vn = np.memmap(dir+"/mmap_vn", mode=mode, shape=(more_N,), dtype=np.float32)
         self.sp = np.memmap(dir+"/mmap_sp", mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)

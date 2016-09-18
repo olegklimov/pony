@@ -221,7 +221,7 @@ def rollout():
 
     print("total reward %0.2f, last reward %0.2f on step %i" % (score, r, ts))
 
-    if track and human_records_xp:
+    if track and human_records_xp and ts>2:
         new_xp.extend(track)
         with xp.replay_mutex:
             xp.replay.extend(track)
@@ -236,7 +236,7 @@ def rollout():
             if human_wants_quit: break
             if human_wants_restart: break
             testrun_rollout()
-            time.sleep(2)
+            time.sleep(4)
             if time.time() > wait_t1 + 20: break
     else:
             alg.reset(False)
