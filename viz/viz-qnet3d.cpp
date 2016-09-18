@@ -196,10 +196,9 @@ struct Quiver {
 		float* phys_v2 = phys_vn;
 		int* step = (int*)   file_step.data();
 		int* flags = (int*)  file_flags.data();
-//		if (mode_transition) {
-//			s2 = (float*) file_ttest.data();
-//			v2 = v1;
-		if (mode_target) {
+		if (mode_transition) {
+			sn = (float*) file_ttest.data();
+		} else if (mode_target) {
 			v2 = vn_targ;
 			phys_v2 = phys_vn_targ;
 		}
@@ -253,12 +252,12 @@ struct Quiver {
 			vcolor[part2+6*cursor+4] = 0.5;
 			vcolor[part2+6*cursor+5] = 0.5;
 
-			if (flags[c] & 1) {
+			if (flags[c] & 2) {
 				vcolor[6*cursor+3] = 0.1;
 				vcolor[6*cursor+4] = 0.1;
 				vcolor[6*cursor+5] = 0.1;
 			}
-			if (flags[c] & 2) {
+			if (flags[c] & 1) {
 				vcolor[6*cursor+0] = 1.0;
 				vcolor[6*cursor+1] = 1.0;
 				vcolor[6*cursor+2] = 1.0;

@@ -54,12 +54,15 @@ class Transition:
                 # Don't try to predict wins and crashes: it's a physical model,
                 # it only can approximate potential field r = V(s') - V(s)
                 sample_weight[i] = 0.0
-            if np.linalg.norm( target_s[i] ) > 1.0:
+                xp.export_viz.flags[x.viz_n] |= 1;
+            if np.linalg.norm( target_s[i] ) > 3.0:
                 # Don't try to approximate when contact with the ground changes, it is outliers.
                 sample_weight[i] = 0.0
                 bad += 1
+                xp.export_viz.flags[x.viz_n] |= 1;
             else:
                 good += 1
+                xp.export_viz.flags[x.viz_n] &= 1;
         #print( "%i/%i" % (bad, (good+bad)) )
 
         with self.model_mutex:
