@@ -37,9 +37,6 @@ class XPoint:
         self.terminal = terminal
         self.viz_n = 0
         self.jpeg = jpeg
-
-        self.v = 0
-        self.vn = 0
         self.bellman = 1
 
     def to_jsonable(self):
@@ -79,16 +76,23 @@ class ExportViz:
         assert ACTION_DIM>0
         self.N  = np.memmap(dir+"/mmap_N", mode=mode, shape=(1), dtype=np.int32)
         more_N = N + 1000
+        # original s, value of original s and a
         self.s  = np.memmap(dir+"/mmap_s",  mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
-        self.v  = np.memmap(dir+"/mmap_v",  mode=mode, shape=(more_N,), dtype=np.float32)
         self.vs = np.memmap(dir+"/mmap_vs", mode=mode, shape=(more_N,), dtype=np.float32)
+        # orginal sn, value of orginal sn and online policy action, target for (s,a)
         self.sn = np.memmap(dir+"/mmap_sn", mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
         self.vn = np.memmap(dir+"/mmap_vn", mode=mode, shape=(more_N,), dtype=np.float32)
-        self.sp = np.memmap(dir+"/mmap_sp", mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
-        self.vp = np.memmap(dir+"/mmap_vp", mode=mode, shape=(more_N,), dtype=np.float32)
-        self.st = np.memmap(dir+"/mmap_st", mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
-        self.vt = np.memmap(dir+"/mmap_vt", mode=mode, shape=(more_N,), dtype=np.float32)
+        self.vn_targ = np.memmap(dir+"/mmap_vn_targ", mode=mode, shape=(more_N,), dtype=np.float32)
+        # original s, value of original s and random noisy action
+        self.phys_vs  = np.memmap(dir+"/mmap_phys_vs",  mode=mode, shape=(more_N,), dtype=np.float32)
+        # predicted sn, value of predicted sp and noisy online policy action, target for the same (sp,noisy_a)
+        self.phys_sn = np.memmap(dir+"/mmap_phys_sn", mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
+        self.phys_vn = np.memmap(dir+"/mmap_phys_vn", mode=mode, shape=(more_N,), dtype=np.float32)
+        self.phys_vn_targ = np.memmap(dir+"/mmap_phys_vn_targ", mode=mode, shape=(more_N,), dtype=np.float32)
+
+        # transition model test, predicted from original s and a
         self.ttest    = np.memmap(dir+"/mmap_ttest",    mode=mode, shape=(more_N,STATE_DIM), dtype=np.float32)
+
         self.step     = np.memmap(dir+"/mmap_step",     mode=mode, shape=(more_N,), dtype=np.int32)
         self.episode  = np.memmap(dir+"/mmap_episode",  mode=mode, shape=(more_N,), dtype=np.int32)
         self.jpeg     = np.memmap(dir+"/mmap_jpegmap",  mode=mode, shape=(more_N*16,), dtype=np.int8)
@@ -111,15 +115,19 @@ def export_viz_open(dir, mode="w+"):
     export_viz = v
     v.N[0] = N
     for x in replay:
-        if x.v: continue
-        export_viz.s[x.viz_n]  = x.s
-        export_viz.v[x.viz_n]  = x.r
-        export_viz.sn[x.viz_n] = x.sn
-        export_viz.vn[x.viz_n] = x.r
-        export_viz.sp[x.viz_n] = x.sn
-        export_viz.vp[x.viz_n] = x.r
-        export_viz.st[x.viz_n] = x.sn
-        export_viz.vt[x.viz_n] = x.r
+        #export_viz.s[x.viz_n]  = x.s
+
+        #export_viz.vs[x.viz_n] = 0
+        #export_viz.sn[x.viz_n] = x.sn
+        #export_viz.vn[x.viz_n] = x.r
+        #export_viz.vn_targ[x.viz_n] = x.r
+
+        #export_viz.phys_vs[x.viz_n] = x.r
+        #export_viz.phys_sn[x.viz_n] = x.sn
+        #export_viz.phys_vn[x.viz_n] = x.r
+        #export_viz.phys_vn_targ[x.viz_n] = x.r
+
+        #export_viz.ttest[x.viz_n] = x.sn
         export_viz.step[x.viz_n] = x.step
         if x.jpeg:
             import os

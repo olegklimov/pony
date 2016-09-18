@@ -135,35 +135,32 @@ class QNetPolicygrad(algo.Algorithm):
             return
         if self.use_random_policy: return
 
-        BATCH = len(buf)
-        assert(self.BATCH==BATCH)
+        B = len(buf)
+        assert(self.BATCH==B)
 
         ## go ##
 
         STATE_DIM = xp.STATE_DIM
-        s  = np.zeros( (BATCH, STATE_DIM) )
-        a  = np.zeros( (BATCH, xp.ACTION_DIM) )
-        sn = np.zeros( (BATCH, STATE_DIM) )
-        st = np.zeros( (BATCH, STATE_DIM) )
-        vt = np.zeros( (BATCH, 1) )
-        sample_weight = np.ones( (BATCH,) )
+        s  = np.zeros( (2*B, STATE_DIM) )
+        a  = np.zeros( (2*B, xp.ACTION_DIM) )
+        sn = np.zeros( (2*B, STATE_DIM) )
+        vt = np.zeros( (2*B, 1) )
+        sample_weight = np.ones( (2*B,) )
 
         for i,x in enumerate(buf):
-            s[i] = x.s
-            a[i] = x.a
-            sn[i] = x.sn
+            s[i]   = x.s
+            a[i]   = x.a
+            sn[i]  = x.sn
+            s[B+i] = x.s
         with self.stable_mutex:
-            v = self.Q_stable.predict( [s,a] )
-            an, vn  = self.online_policy_value.predict(sn)    # action at sn
-            apolicy = self.online_policy_action.predict(s)    # action at s
-            apolicy_noisy = apolicy + np.random.uniform(low=-ACTION_DISPERSE, high=ACTION_DISPERSE, size=(BATCH,xp.ACTION_DIM))
+            v = self.Q_stable.predict( [s[:B],a[:B]] )
+            an, vn  = self.online_policy_value.predict(sn[:B]) # action at sn, uses Q_stable inside
+            apolicy = self.online_policy_action.predict(s[B:]) # action at s
+            apolicy_noisy = apolicy + np.random.uniform(low=-ACTION_DISPERSE, high=ACTION_DISPERSE, size=(B,xp.ACTION_DIM))
             apolicy_noisy = np.clip(apolicy_noisy, -1, +1)
-            vpolicy = self.Q_stable.predict( [s,apolicy_noisy] )
-            sp, rp  = self.trans.predict(s, apolicy_noisy)    # predicted state and reward from transition model
-            ap, vp  = self.online_policy_value.predict(sp)    # action at sp, uses Q_stable inside
-        for i,x in enumerate(buf):
-            x.v  = v[i][0]
-            x.vn = vn[i][0]
+            vpolicy = self.Q_stable.predict( [s[B:], apolicy_noisy] )
+            phys_sn, phys_r  = self.trans.predict(s[B:], apolicy_noisy)  # predicted state and reward from transition model
+            phys_an, phys_vn = self.online_policy_value.predict(phys_sn) # action at phys_sn, uses Q_stable inside
         t1 = time.time()
 
         N = len(xp.replay)
@@ -182,75 +179,59 @@ class QNetPolicygrad(algo.Algorithm):
                 # Can we trust vn = Q(sn, an) ?
                 X[0][:STATE_DIM] = x.sn
                 X[0][STATE_DIM:] = an[i]
-                count = self.neighbours.query_radius(X, r=0.1, count_only=True)[0]
-                count = 0
-                physics = np.random.randint(count+0, count+10) < 5
+                #count = self.neighbours.query_radius(X, r=0.1, count_only=True)[0]
+                #count = 0
+                #physics = np.random.randint(count+0, count+10) < 5
                 #physics = True
                 stuck   = np.linalg.norm(x.s - x.sn) < 0.01
                 #print "count=%i, physics=%s, stuck=%i" % (count, physics, stuck)
                 if x.terminal and np.abs(x.r) > CRASH_OR_WIN_THRESHOLD:
                     # crash or win
-                    st[i] = s[i]
-                    a[i]  = apolicy_noisy[i]  # doesn't matter much, but give it harder task
-                    old_v = vpolicy[i][0]
-                    x.target_v = x.r    # nail final point
+                    a[B+i]    = apolicy_noisy[i]
+                    vt[i,0]   = x.r
+                    vt[B+i,0] = x.r
                     stuck = False
-                    physics = False
-                    #sample_weight[i] = 1.0
-                    bellman = abs(x.target_v - vpolicy[i][0])
+                    sample_weight[i]   = 1.0
+                    sample_weight[B+i] = 1.0
+                    bellman = abs(vt[i,0] - vpolicy[i,0])
                     bellman_term += bellman
                     bellman_term_n += 1
-                elif physics or stuck:
-                    # use physics model, predicted sp, rp
-                    st[i] = sp[i]
-                    a[i]  = apolicy[i]
-                    x.target_v = rp[i][0] + self.GAMMA*vp[i][0]
-                    old_v = vpolicy[i][0]
-                    bellman = abs(x.target_v - vpolicy[i][0])
-                    bellman_phys += bellman
-                    bellman_phys_n += 1
                 else:
                     # Q-learning
-                    st[i] = sn[i]
-                    x.target_v = x.r   + self.GAMMA*x.vn
-                    old_v = x.v
-                    bellman = abs(x.target_v - x.v)
+                    vt[i,0] = x.r + self.GAMMA*vn[i,0]
+                    bellman = abs(vt[i,0] - v[i,0])
                     bellman_qlrn += bellman
                     bellman_qlrn_n += 1
+                    sample_weight[i]   = 1.0
+                    # Physics model
+                    a[B+i]    = apolicy_noisy[i]
+                    vt[B+i,0] = phys_r[i,0] + self.GAMMA*phys_vn[i,0]
+                    bellman         = abs(vt[B+i,0] - vpolicy[i,0])
+                    bellman_phys   += bellman
+                    bellman_phys_n += 1
+                    sample_weight[B+i] = 1.0
 
-                vt[i,0] = x.target_v
                 f = 0
-                if physics: f |= 1
+                #if physics: f |= 1
                 if stuck:   f |= 2
                 if stuck:   sample_weight[i] = 0.0
-                xp.export_viz.flags[x.viz_n] = f
+
                 xp.export_viz.s[x.viz_n]  = x.s
-                xp.export_viz.vs[x.viz_n] = x.v
-                xp.export_viz.v[x.viz_n]  = old_v
+
+                xp.export_viz.vs[x.viz_n] = v[i,0]
                 xp.export_viz.sn[x.viz_n] = x.sn
-                xp.export_viz.vn[x.viz_n] = x.vn
-                xp.export_viz.sp[x.viz_n] = sp[i]
-                xp.export_viz.vp[x.viz_n] = vp[i][0]
-                xp.export_viz.st[x.viz_n] = st[i]
-                xp.export_viz.vt[x.viz_n] = vt[i][0]
+                xp.export_viz.vn[x.viz_n] = vn[i,0]
+                xp.export_viz.vn_targ[x.viz_n] = vt[i,0]
+
+                xp.export_viz.phys_vs[x.viz_n] = vpolicy[i]
+                xp.export_viz.phys_sn[x.viz_n] = phys_sn[i]
+                xp.export_viz.phys_vn[x.viz_n] = phys_vn[i,0]
+                xp.export_viz.phys_vn_targ[x.viz_n] = vt[B+i,0]
+
+                xp.export_viz.flags[x.viz_n] = f
                 xp.export_viz.step[x.viz_n] = x.step
                 xp.export_viz.episode[x.viz_n] = x.episode
                 x.bellman_weights[x.viz_n] = bellman
-
-                # s / vn            -- clear
-                # target / target   -- used for learning xp or transition / target
-                # transition / flat -- test transition of xp action / flat
-                # policy            -- see transition viz of policy / expected value of policy
-
-                # need:
-                # s
-                # v
-                # sn                                          -- sn from experience
-                # vn
-                # sp                                          -- predicted using policy action
-                # vp
-                # st = (sn or sp)                             -- target
-                # vt = (rxp+GAMMA*Q(xp) or rp+GAMMA*Q(sp))
         t2 = time.time()
 
         xp.export_viz.N[0] = self.N
@@ -258,14 +239,14 @@ class QNetPolicygrad(algo.Algorithm):
         transition_loss, reward_loss = self.trans.learn_iteration(buf, dry_run)
         if dry_run:
             with self.online_mutex:
-                loss = self.Q_online.test_on_batch( [s, a], vt )
+                loss = self.Q_online.test_on_batch( [s, a], vt, sample_weight=sample_weight  )
             policy_loss = 0.0
         else:
             with self.online_mutex:
                 loss = self.Q_online.train_on_batch( [s, a], vt, sample_weight=sample_weight )
             #test1 = self.Q_stable.test_on_batch( [s, a], vt )
             with self.stable_mutex:
-                policy_loss = self.online_policy_value.train_on_batch(s, [apolicy,vt])  # vt target not used, see only_up()
+                policy_loss = self.online_policy_value.train_on_batch(s[B:], [apolicy,vt[B:]])  # vt target not used, see only_up(); apolicy used in close_to_previous_policy; also not apolicy_noisy.
                 policy_loss = float(policy_loss[0])   # [loss, close_to_previous_policy, only_up], print self.online_policy_value.metrics_names
             #test2 = self.Q_stable.test_on_batch( [s, a], vt )
             #print("test1", test1, "test2", test2)  # test2 must be equal to test1, otherwise we're learning not only policy, but Q too.

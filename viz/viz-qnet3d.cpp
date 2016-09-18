@@ -29,13 +29,14 @@ struct Quiver {
 	int STATEDIM;
 	mapped_file_source file_N;
 	mapped_file_source file_s;
-	mapped_file_source file_v;
+	mapped_file_source file_vs;
 	mapped_file_source file_sn;
 	mapped_file_source file_vn;
-	mapped_file_source file_st;
-	mapped_file_source file_vt;
-	mapped_file_source file_sp;
-	mapped_file_source file_vp;
+	mapped_file_source file_vn_targ;
+	mapped_file_source file_phys_vs;
+	mapped_file_source file_phys_sn;
+	mapped_file_source file_phys_vn;
+	mapped_file_source file_phys_vn_targ;
 	mapped_file_source file_ttest;
 	mapped_file_source file_step;
 	mapped_file_source file_episode;
@@ -57,14 +58,18 @@ struct Quiver {
 		dir = dir_;
 		env_dir = env_dir_;
 		file_N.open(dir + "/mmap_N");
-		file_s .open(dir + "/mmap_s");
-		file_v .open(dir + "/mmap_v");
+		file_s.open(dir + "/mmap_s");
+		file_vs.open(dir + "/mmap_vs");
+
 		file_sn.open(dir + "/mmap_sn");
 		file_vn.open(dir + "/mmap_vn");
-		file_st.open(dir + "/mmap_st");
-		file_vt.open(dir + "/mmap_vt");
-		file_sp.open(dir + "/mmap_sp");
-		file_vp.open(dir + "/mmap_vp");
+		file_vn_targ.open(dir + "/mmap_vn_targ");
+
+		file_phys_vs.open(dir + "/mmap_phys_vs");
+		file_phys_sn.open(dir + "/mmap_phys_sn");
+		file_phys_vn.open(dir + "/mmap_phys_vn");
+		file_phys_vn_targ.open(dir + "/mmap_phys_vn_targ");
+
 		file_ttest.open(dir + "/mmap_ttest");
 		file_step.open(dir + "/mmap_step");
 		file_episode.open(dir + "/mmap_episode");
@@ -80,13 +85,14 @@ struct Quiver {
 	{
 		file_N.close();
 		file_s.close();
-		file_v.close();
+		file_vs.close();
 		file_sn.close();
 		file_vn.close();
-		file_st.close();
-		file_vt.close();
-		file_sp.close();
-		file_vp.close();
+		file_vn_targ.close();
+		file_phys_vs.close();
+		file_phys_sn.close();
+		file_phys_vn.close();
+		file_phys_vn_targ.close();
 		file_ttest.close();
 		file_step.close();
 		file_episode.close();
@@ -126,10 +132,10 @@ struct Quiver {
 	void print_about(int ind)
 	{
 		int i = ind;
-		float* Vstable1 = (float*) file_v.data();
+		float* Vstable1 = (float*) file_vn_targ.data();
 		float* Vstable2 = (float*) file_vn.data();
 		const int* episode = (const int*) file_episode.data();
-		float* Vtarget  = (float*) file_vt.data();
+		float* Vtarget  = (float*) file_phys_vn.data();
 		const char* jpeg = (const char*) file_jpeg.data();
 		int this_episode = episode[i];
 		while (this_episode==episode[i]) {
@@ -167,7 +173,7 @@ struct Quiver {
 		if (!file_N.is_open()) return;
 		int new_N = ((int*)file_N.data())[0];
 		if (new_N!=N) {
-			STATEDIM = file_s.size() / file_v.size();
+			STATEDIM = file_s.size() / file_vn_targ.size();
 			N = new_N;
 			render_N = 0;
 			printf("N=%i STATEDIM=%i\n", N, STATEDIM);
@@ -175,22 +181,31 @@ struct Quiver {
 			open(env_dir, dir);
 		}
 		if (N==0) return;
-		float* s1 = (float*) file_s.data();
-		float* s2 = (float*) file_sn.data();
-		float* v1 = (float*) file_v.data();
-		float* v2 = (float*) file_vn.data();
+		float* s = (float*) file_s.data();
+
+		float* sn = (float*) file_sn.data();
+		float* vs = (float*) file_vs.data();
+		float* vn = (float*) file_vn.data();
+		float* vn_targ =  (float*) file_vn_targ.data();
+
+		float* phys_vs = (float*) file_phys_vs.data();
+		float* phys_sn = (float*) file_phys_sn.data();
+		float* phys_vn = (float*) file_phys_vn.data();
+		float* phys_vn_targ = (float*) file_phys_vn_targ.data();
+		float* v2 = vn;
+		float* phys_v2 = phys_vn;
 		int* step = (int*)   file_step.data();
 		int* flags = (int*)  file_flags.data();
-		if (mode_transition) {
-			s2 = (float*) file_ttest.data();
-			v2 = v1;
-		} else if (mode_target) {
-			s2 = (float*) file_st.data();
-			v2 = (float*) file_vt.data();
-		} else if (mode_policy) {
-			s2 = (float*) file_sp.data();
-			v2 = (float*) file_vp.data();
+//		if (mode_transition) {
+//			s2 = (float*) file_ttest.data();
+//			v2 = v1;
+		if (mode_target) {
+			v2 = vn_targ;
+			phys_v2 = phys_vn_targ;
 		}
+//		} else if (mode_policy) {
+//			s2 = (float*) file_phys_vs.data();
+//			v2 = vp;
 		float step_f;
 		float step_k;
 		if (timefilter_t1 >= 0) {
@@ -200,11 +215,11 @@ struct Quiver {
 			step_f = 0;
 			step_k = 2.0f / *std::max_element(step, step+N);
 		}
-		vertex.resize(2*6*N);
-		vcolor.resize(2*6*N);
+		vertex.resize(2*6*N*2);
+		vcolor.resize(2*6*N*2);
 		float z_range1 = 1.0 / z_range;
 		float xy_range1 = 1.0 / xy_range;
-		//int part2 = N*6;
+		int part2 = 6*N;
 		int cursor = 0;
 		rendered2index.clear();
 		for (int c=0; c<N; c++) {
@@ -213,17 +228,30 @@ struct Quiver {
 			if (filtered) continue;
 			rendered2index.push_back(c);
 
-			vertex[6*cursor+0] = val_from_axis( s1+STATEDIM*c, xy_range1, axis1, step[c], step_f, step_k, v1[c], z_range1, mode_transition );
-			vertex[6*cursor+1] = val_from_axis( s1+STATEDIM*c, xy_range1, axis2, step[c], step_f, step_k, v1[c], z_range1, mode_transition );
-			vertex[6*cursor+2] = val_from_axis( s1+STATEDIM*c, xy_range1, axis3, step[c], step_f, step_k, v1[c], z_range1, mode_transition );
-			float color1       = val_from_axis( s1+STATEDIM*c, xy_range1, axis4, step[c], step_f, step_k, v1[c], z_range1, mode_transition );
+			vertex[6*cursor+0] = val_from_axis( s+STATEDIM*c, xy_range1, axis1, step[c], step_f, step_k, vs[c], z_range1, mode_transition );
+			vertex[6*cursor+1] = val_from_axis( s+STATEDIM*c, xy_range1, axis2, step[c], step_f, step_k, vs[c], z_range1, mode_transition );
+			vertex[6*cursor+2] = val_from_axis( s+STATEDIM*c, xy_range1, axis3, step[c], step_f, step_k, vs[c], z_range1, mode_transition );
+			float color1       = val_from_axis( s+STATEDIM*c, xy_range1, axis4, step[c], step_f, step_k, vs[c], z_range1, mode_transition );
 			fill_color(color1, vcolor.data()+6*cursor);
 
-			vertex[6*cursor+3] = val_from_axis( s2+STATEDIM*c, xy_range1, axis1, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
-			vertex[6*cursor+4] = val_from_axis( s2+STATEDIM*c, xy_range1, axis2, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
-			vertex[6*cursor+5] = val_from_axis( s2+STATEDIM*c, xy_range1, axis3, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
-			float color2       = val_from_axis( s2+STATEDIM*c, xy_range1, axis4, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
+			vertex[6*cursor+3] = val_from_axis( sn+STATEDIM*c, xy_range1, axis1, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
+			vertex[6*cursor+4] = val_from_axis( sn+STATEDIM*c, xy_range1, axis2, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
+			vertex[6*cursor+5] = val_from_axis( sn+STATEDIM*c, xy_range1, axis3, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
+			float color2       = val_from_axis( sn+STATEDIM*c, xy_range1, axis4, step[c]+1, step_f, step_k, v2[c], z_range1, mode_transition );
 			fill_color(color2, vcolor.data()+6*cursor+3);
+
+			vertex[part2+6*cursor+0] = val_from_axis( s+STATEDIM*c, xy_range1, axis1, step[c], step_f, step_k, phys_vs[c], z_range1, mode_transition );
+			vertex[part2+6*cursor+1] = val_from_axis( s+STATEDIM*c, xy_range1, axis2, step[c], step_f, step_k, phys_vs[c], z_range1, mode_transition );
+			vertex[part2+6*cursor+2] = val_from_axis( s+STATEDIM*c, xy_range1, axis3, step[c], step_f, step_k, phys_vs[c], z_range1, mode_transition );
+			vertex[part2+6*cursor+3] = val_from_axis( phys_sn+STATEDIM*c, xy_range1, axis1, step[c], step_f, step_k, phys_v2[c], z_range1, mode_transition );
+			vertex[part2+6*cursor+4] = val_from_axis( phys_sn+STATEDIM*c, xy_range1, axis2, step[c], step_f, step_k, phys_v2[c], z_range1, mode_transition );
+			vertex[part2+6*cursor+5] = val_from_axis( phys_sn+STATEDIM*c, xy_range1, axis3, step[c], step_f, step_k, phys_v2[c], z_range1, mode_transition );
+			vcolor[part2+6*cursor+0] = 0.5;
+			vcolor[part2+6*cursor+1] = 0.5;
+			vcolor[part2+6*cursor+2] = 0.5;
+			vcolor[part2+6*cursor+3] = 0.5;
+			vcolor[part2+6*cursor+4] = 0.5;
+			vcolor[part2+6*cursor+5] = 0.5;
 
 			if (flags[c] & 1) {
 				vcolor[6*cursor+3] = 0.1;
@@ -247,7 +275,8 @@ struct Quiver {
 	}
 
 	int render_N = 0;
-	
+	bool visible_phys = true;
+
 	void draw(int highlight_n)
 	{
 		if (vertex.empty()) return;
@@ -262,6 +291,8 @@ struct Quiver {
 		glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
 
 		glDrawArrays(GL_LINES, 0,     2*render_N);
+		if (visible_phys)
+			glDrawArrays(GL_LINES, part2, 2*render_N);
 
 		glVertexPointer(3, GL_FLOAT, 6*4, vertex.data());
 		glColorPointer(3, GL_FLOAT, 6*4, vcolor.data());
@@ -551,6 +582,9 @@ void Viz::keyPressEvent(QKeyEvent* kev)
 	if (kev->key()==Qt::Key_PageDown || kev->key()==Qt::Key_PageUp) {
 		double sign = kev->key()==Qt::Key_PageDown ?  -1 : +1;
 		user_z += sign * 0.02;
+	}
+	if (kev->key()==Qt::Key_QuoteLeft && q) {
+		q->visible_phys ^= true;
 	}
 	updateGL();
 }
