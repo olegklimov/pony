@@ -32,7 +32,7 @@ class Transition:
 
         self.model = Model( input=[inp_s, inp_a], output=[out_tensor_s, out_tensor_r] )
         from keras.optimizers import SGD, Adagrad, Adam, Adamax, RMSprop
-        self.model.compile(loss=['mse', 'mse'], optimizer=Adam(lr=0.0001, beta_2=0.999, epsilon=1e-5))
+        self.model.compile(loss=['mae', 'mae'], optimizer=Adam(lr=0.0001, beta_2=0.999, epsilon=1e-5))
         #self.model.compile(loss='mse', optimizer=Adamax())
         #self.model.compile(loss='mae', optimizer=Adam(lr=0.00005, beta_2=0.999))
 
@@ -45,24 +45,25 @@ class Transition:
         sample_weight = np.ones( (BATCH,) )
 
         good, bad = 0, 0
-        for i,x in enumerate(buf):
-            inp_s[i] = x.s 
-            inp_a[i] = x.a
-            target_s[i] = x.sn - x.s
-            target_r[i] = x.r
-            if np.abs(x.r) > CRASH_OR_WIN_THRESHOLD:
-                # Don't try to predict wins and crashes: it's a physical model,
-                # it only can approximate potential field r = V(s') - V(s)
-                sample_weight[i] = 0.0
-                xp.export_viz.flags[x.viz_n] |= 1;
-            if np.linalg.norm( target_s[i] ) > 3.0:
-                # Don't try to approximate when contact with the ground changes, it is outliers.
-                sample_weight[i] = 0.0
-                bad += 1
-                xp.export_viz.flags[x.viz_n] |= 1;
-            else:
-                good += 1
-                xp.export_viz.flags[x.viz_n] &= 1;
+        with xp.replay_mutex:
+            for i,x in enumerate(buf):
+                inp_s[i] = x.s
+                inp_a[i] = x.a
+                target_s[i] = x.sn - x.s
+                target_r[i] = x.r
+                if np.abs(x.r) > CRASH_OR_WIN_THRESHOLD:
+                    # Don't try to predict wins and crashes: it's a physical model,
+                    # it only can approximate potential field r = V(s') - V(s)
+                    sample_weight[i] = 0.0
+                    xp.export_viz.flags[x.viz_n] |= 1;
+                if np.linalg.norm( target_s[i] ) > 3.0:
+                    # Don't try to approximate when contact with the ground changes, it is outliers.
+                    sample_weight[i] = 0.0
+                    bad += 1
+                    xp.export_viz.flags[x.viz_n] |= 1;
+                else:
+                    good += 1
+                    xp.export_viz.flags[x.viz_n] &= 1;
         #print( "%i/%i" % (bad, (good+bad)) )
 
         with self.model_mutex:
