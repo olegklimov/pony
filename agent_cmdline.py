@@ -22,9 +22,9 @@ parser = argparse.ArgumentParser(description="Reinforcement learning from demons
 parser.add_argument("env", metavar="ENV", nargs=1, help="gym environment to work with, also defines environment directory .ENV/")
 parser.add_argument("--loadxp", nargs='+', help="load experience from environment directory")
 parser.add_argument("--savexp", nargs=1, help="file and jpeg dir name prefix to save experience (J, Ctrl+S)")
-parser.add_argument("--viz-only", help="export visualisation arrays and quit (default)", action="store_true")
 parser.add_argument("--learn", nargs=1, help="learn and quit", default=["QP"])  #, action="store_true")
-parser.add_argument("--frameskip", nargs=1, help="frame skipping", type=int, default=1)
+parser.add_argument("--frameskip", nargs=1, help="frame skipping", type=int, default=[1])
+parser.add_argument("--anti-stuck", help="do high amplitude random action if stuck", action="store_true")
 parser.add_argument("--control-from-iteration", help="learn and quit", type=int, default=-1)
 args = parser.parse_args()
 
@@ -69,24 +69,16 @@ if xp.STATE_DIM==0:
 try: xp.export_viz_open(dir_jpeg, "r+")
 except: xp.export_viz_open(dir_jpeg, "w+")
 
-if args.viz_only:
-    sys.exit(0)
-
 print("control-from-iteration: {}".format(args.control_from_iteration))
 print("learn={}".format(args.learn[0]))
 
-if args.learn[0]=="WAR":
-    import controller.algo_wires_advantage_random as war
-    alg = war.WiresAdvantageRandom()
-elif args.learn[0]=="WTR":
-    import controller.algo_wires_transition_random as wtr
-    alg = wtr.WiresTransitionRandom()
-elif args.learn[0]=="DBW":
+progress_dir = dir + "/progress"
+if args.learn[0]=="DBW":
     import demo_bipedal_walker
-    alg = demo_bipedal_walker.DemoBipedalWalker()
+    alg = demo_bipedal_walker.DemoBipedalWalker(progress_dir, experiment_name)
 elif args.learn[0]=="DLL":
     import demo_lunar_lander
-    alg = demo_lunar_lander.DemoLunarLander()
+    alg = demo_lunar_lander.DemoLunarLander(progress_dir, experiment_name)
 elif args.learn[0]=="QP":
     import controller.algo_qnet_policygrad as qp
     alg = qp.QNetPolicygrad(dir + "/progress", experiment_name)
@@ -96,6 +88,8 @@ else:
 
 human_sets_pause = 1
 alg.pause = True
+alg.anti_stuck = args.anti_stuck
+
 human_wants_quit = False
 human_wants_restart = False
 human_records_xp = True
@@ -119,6 +113,8 @@ def key_press(key, mod):
         alg.load(dir + "/_weights")
         with xp.replay_mutex:
             xp.export_viz_open(dir_jpeg, "r+")
+    elif key==kk.F5:
+        alg.do_action()
     elif key==ord("j"):
         human_records_xp = not human_records_xp
         print("record=%i prefix=%s" % (human_records_xp, prefix))
@@ -160,6 +156,7 @@ learn_thread.start()
 
 def testrun_rollout():
     "instead of sleeping, run a test, post score to progress log"
+    return
     env2 = make_env()
     pi = alg.export_policy()
     score = 0

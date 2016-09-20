@@ -17,9 +17,15 @@ class Algorithm:
         import subprocess
         rev  = subprocess.Popen(["git", "log", "-1"], stdout=subprocess.PIPE).communicate()[0]
         diff = subprocess.Popen(["git", "diff"], stdout=subprocess.PIPE).communicate()[0]
-        self.progress = progress.Progress(dir, experiment_name, rev + "\n" + diff, self.nameof_losses, self.nameof_runind)
-        self.progress_last_epoch = 0
-        self.time_start = time.time()
+        if self.nameof_losses:
+            self.progress = progress.Progress(dir, experiment_name, rev + "\n" + diff, self.nameof_losses, self.nameof_runind)
+            self.progress_last_epoch = 0
+            self.time_start = time.time()
+        else:
+            self.progress = None
+
+    nameof_runind = []
+    nameof_losses = []
 
     def _test_still_need_random_policy(self):
         pass
@@ -48,12 +54,13 @@ class Algorithm:
         #print "%0.2fms = %0.2fms batch + %0.2fms iteration" % ( 1000*(t3-t1), 1000*(t2-t1), 1000*(t3-t2) )
 
         epoch_int = int(xp.epoch)
-        if epoch_int != self.progress_last_epoch or True:
+        if self.progress and epoch_int != self.progress_last_epoch or True:
             self.progress_last_epoch = epoch_int
             self.progress.push_data_point(self.iter_counter, xp.epoch, time.time() - self.time_start, 0.01, *losses_array)
 
     def push_testrun_point(self, score, runtime):
-        self.progress.push_testrun_point(self.iter_counter, xp.epoch, time.time() - self.time_start, score, runtime)
+        if self.progress:
+            self.progress.push_testrun_point(self.iter_counter, xp.epoch, time.time() - self.time_start, score, runtime)
 
     def save(self, fn):
         with self.save_load_mutex:
@@ -78,6 +85,10 @@ class Algorithm:
         return not self.use_random_policy
 
     def load_something_useful_on_start(self, fn):
+        pass
+
+    def do_action(self):
+        "test something by pressing F5"
         pass
 
 
