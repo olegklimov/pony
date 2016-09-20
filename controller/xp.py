@@ -114,6 +114,7 @@ def export_viz_open(dir, mode="w+"):
     v.reopen(dir, N, STATE_DIM, mode)
     export_viz = v
     v.N[0] = N
+    episode = 100
     for x in replay:
         #export_viz.s[x.viz_n]  = x.s
 
@@ -129,6 +130,8 @@ def export_viz_open(dir, mode="w+"):
 
         #export_viz.ttest[x.viz_n] = x.sn
         export_viz.step[x.viz_n] = x.step
+        export_viz.episode[x.viz_n] = episode
+        x.episode = episode
         if x.jpeg:
             import os
             j = x.jpeg[x.jpeg.find('/')+1:]
@@ -138,6 +141,7 @@ def export_viz_open(dir, mode="w+"):
             export_viz.jpeg[x.viz_n*16 + len(j)] = 0
         else:
             export_viz.jpeg[x.viz_n*16 + 0] = 0
+        if x.terminal: episode += 1
 
 def shuffle():
     'with replay_mutex'
