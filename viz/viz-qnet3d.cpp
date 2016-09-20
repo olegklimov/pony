@@ -197,6 +197,7 @@ struct Quiver {
 		int* step = (int*)   file_step.data();
 		int* flags = (int*)  file_flags.data();
 		if (mode_transition) {
+			phys_sn = sn;
 			sn = (float*) file_ttest.data();
 		} else if (mode_target) {
 			v2 = vn_targ;

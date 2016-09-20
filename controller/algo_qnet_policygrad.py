@@ -2,7 +2,7 @@ import algo
 import xp
 import transition_model
 
-import numpy as np, time
+import numpy as np, time, random
 import keras
 import keras.models
 from keras import backend as K
@@ -39,43 +39,15 @@ class QNetPolicygrad(algo.Algorithm):
         self.TAU = TAU
         self.stable_mutex = Lock()
         self.online_mutex = Lock()
+        self.anti_stuck = False
+        self.stuck = 0
 
         clamp = Lambda(clamp_minus_one_plus_one)
 
         input_s = Input( shape=(xp.STATE_DIM,) )
-        def qmodel():
-            inp_s = Input( shape=(xp.STATE_DIM,),  name="inp_s")  # batch (None, ...) added automatically
-            inp_a = Input( shape=(xp.ACTION_DIM,), name="inp_a")
 
-            a1 = Dense(640, activation='relu', W_regularizer=l2(0.01))
-            a2 = Dense(640, activation='relu', W_regularizer=l2(0.01))
-            #a3 = Dense(320, activation='relu', W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01))
-            a_out = Dense(1, W_regularizer=l2(0.01)) #W_constraint=nonneg())
-
-            v1 = Dense(640, activation='relu', W_regularizer=l2(0.01))
-            v2 = Dense(640, activation='relu', W_regularizer=l2(0.01))
-            v_out = Dense(1, W_regularizer=l2(0.01))
-
-            gaussian = Lambda(gaussian_of_x, output_shape=gaussian_of_x_shape)
-            parabolized_action = merge( [
-                a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) ),
-                gaussian(inp_a)
-                ], mode='mul')
-            out_tensor = a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) )
-            #out_tensor = merge( [
-            #    parabolized_action,
-            #    v_out( v2(v1(inp_s)) )
-            #    ], mode='sum' )
-
-            Qmod = Model( input=[inp_s,inp_a], output=out_tensor )
-            Qmod.compile(loss='mse', optimizer=Adam(lr=0.0001, beta_2=0.9999))
-            return [v1,v2,v_out, a1,a2,a_out], Qmod
-
-        stable_trainable, self.Q_stable = qmodel()
-        online_trainable, self.Q_online = qmodel()
-
-        for layer in stable_trainable:
-            layer.trainable = False  # model already compiled (that's where this flag used), this assignment avoids learning Q layers by learning policy
+        self.Q_stable = self.qmodel(False)
+        self.Q_online = self.qmodel(True)
 
         self.stable_policy_action, self.stable_policy_value = self.policy_net(input_s)
         self.online_policy_action, self.online_policy_value = self.policy_net(input_s)
@@ -84,6 +56,40 @@ class QNetPolicygrad(algo.Algorithm):
 
         self.countdown = 0
         self.demo_policy_tolearn = 0  #2000
+        self.autocorrelated_random = np.zeros(shape=(xp.ACTION_DIM,))
+        self.prev_s = np.zeros(xp.STATE_DIM)
+        self.test_action = False
+
+    def qmodel(self, trainable):
+        inp_s = Input( shape=(xp.STATE_DIM,),  name="inp_s")  # batch (None, ...) added automatically
+        inp_a = Input( shape=(xp.ACTION_DIM,), name="inp_a")
+
+        a1 = Dense(640, activation='relu', W_regularizer=l2(0.01))
+        a2 = Dense(640, activation='relu', W_regularizer=l2(0.01))
+        #a3 = Dense(320, activation='relu', W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01))
+        a_out = Dense(1, W_regularizer=l2(0.01)) #W_constraint=nonneg())
+
+        v1 = Dense(640, activation='relu', W_regularizer=l2(0.01))
+        v2 = Dense(640, activation='relu', W_regularizer=l2(0.01))
+        v_out = Dense(1, W_regularizer=l2(0.01))
+
+        gaussian = Lambda(gaussian_of_x, output_shape=gaussian_of_x_shape)
+        parabolized_action = merge( [
+            a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) ),
+            gaussian(inp_a)
+            ], mode='mul')
+        out_tensor = a_out( a2(a1( merge([inp_s, inp_a], mode='concat') )) )
+        #out_tensor = merge( [
+        #    parabolized_action,
+        #    v_out( v2(v1(inp_s)) )
+        #    ], mode='sum' )
+
+        Qmod = Model( input=[inp_s,inp_a], output=out_tensor )
+        Qmod.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))
+        if not trainable:
+            for layer in [v1,v2,v_out, a1,a2,a_out]:
+                layer.trainable = False  # model already compiled (that's where this flag used), this assignment avoids learning Q layers by learning policy
+        return Qmod
 
     def policy_net(self, inp_s):
         clamp = Lambda(clamp_minus_one_plus_one)
@@ -98,7 +104,7 @@ class QNetPolicygrad(algo.Algorithm):
         out_action = clamp(out( d2(d1(inp_s)) ))
         value_of_s = self.Q_stable( [inp_s,out_action] )    # Q_stable here! (only self. in function)
         action = Model( input=[inp_s], output=out_action )
-        action.compile(loss='mse', optimizer=Adam(lr=0.0001, beta_2=0.9999))  # really optimal values here
+        action.compile(loss='mse', optimizer=Adam(lr=0.0005, beta_2=0.9999))  # really optimal values here
         value  = Model( input=[inp_s], output=[out_action,value_of_s] )
         value.compile(loss=[close_to_previous_policy,only_up], optimizer=Adam(lr=0.0005, beta_2=0.9999))
         return action, value
@@ -113,30 +119,9 @@ class QNetPolicygrad(algo.Algorithm):
             return pi.predict(s.reshape(1,xp.STATE_DIM))[0]
         return return_action
 
-    def _learn_demo_policy_supervised(self, buf, dry_run):
-        s = np.zeros( (self.BATCH, xp.STATE_DIM) )
-        batch_a = np.zeros( (self.BATCH, xp.ACTION_DIM) )
-        for i,x in enumerate(buf):
-            s[i] = x.s
-            batch_a[i] = x.a
-        with self.stable_mutex:
-            loss = self.online_policy_action.train_on_batch( s, batch_a )
-            if self.demo_policy_tolearn==0:
-                w = self.online_policy_action.get_weights()
-                self.stable_policy_action.set_weights(w)
-                print("copy to stable policy")
-            elif self.demo_policy_tolearn % 100 == 0:
-                print("%05i supervised demo learn %0.4f" % (self.demo_policy_tolearn, loss))
-
-    def _test_still_need_random_policy(self):
-        if self.use_random_policy:
-            N = len(xp.replay)
-            self.N = N
-            if N > 1000:
-                self.use_random_policy = False
-                print("have %i random samples, start learning" % N)
-            else:
-                self.demo_policy_tolearn = 0  # random action taken, supervised demo learning not applicable
+    def do_action(self):
+        print "see F5, pause=%i" % self.pause
+        self.test_action = True
 
     def _learn_iteration(self, buf, dry_run):
         t0 = time.time()
@@ -148,6 +133,11 @@ class QNetPolicygrad(algo.Algorithm):
 
         B = len(buf)
         assert(self.BATCH==B)
+        if self.test_action:
+            with xp.replay_mutex:
+                buf = xp.replay[:]
+                random.shuffle(buf)
+                B = len(buf)
 
         ## go ##
 
@@ -194,7 +184,8 @@ class QNetPolicygrad(algo.Algorithm):
                 #count = 0
                 #physics = np.random.randint(count+0, count+10) < 5
                 #physics = True
-                stuck   = np.linalg.norm(x.s - x.sn) < 0.01
+                #stuck   = np.linalg.norm(x.s - x.sn) < 0.01
+                stuck = False
                 #print "count=%i, physics=%s, stuck=%i" % (count, physics, stuck)
                 if x.terminal and np.abs(x.r) > CRASH_OR_WIN_THRESHOLD:
                     # crash or win
@@ -220,7 +211,7 @@ class QNetPolicygrad(algo.Algorithm):
                     bellman         = abs(vt[B+i,0] - vpolicy[i,0])
                     bellman_phys   += bellman
                     bellman_phys_n += 1
-                    sample_weight[B+i] = 1.0
+                    sample_weight[B+i] = 1.0 #/ (1+count)
 
                 f = 0
                 #if physics: f |= 1
@@ -247,6 +238,11 @@ class QNetPolicygrad(algo.Algorithm):
 
         xp.export_viz.N[0] = self.N
 
+        if self.test_action:
+            self.replace_networks(s, a, vt, sample_weight)
+            self.test_action = False
+            return
+
         transition_loss, reward_loss = self.trans.learn_iteration(buf, dry_run)
         if dry_run:
             with self.online_mutex:
@@ -268,12 +264,29 @@ class QNetPolicygrad(algo.Algorithm):
         assert isinstance(transition_loss, float), type(transition_loss)
         assert isinstance(policy_loss, float), type(policy_loss)
         t3 = time.time()
-        print "time eval=%0.2fms target=%0.2fms learn=%0.2fms total=%0.2fms" % (1000*(t1-t0), 1000*(t2-t1), 1000*(t3-t2), 1000*(t3-t0))
+        #print "time eval=%0.2fms target=%0.2fms learn=%0.2fms total=%0.2fms" % (1000*(t1-t0), 1000*(t2-t1), 1000*(t3-t2), 1000*(t3-t0))
 
         return [transition_loss, reward_loss, bellman_term/bellman_term_n, bellman_phys/bellman_phys_n, bellman_qlrn/bellman_qlrn_n]
 
     nameof_losses = ["transition", "reward", "bellman_term", "bellman_phys", "bellman_qlrn"]
     nameof_runind = ["score", "runtime"]
+
+    def replace_networks(self, s, a, vt, sample_weight):
+        print("REPLACE NETWORKS")
+        loss = self.Q_online.test_on_batch( [s, a], vt, sample_weight=sample_weight  )
+        print("replace_networks Q_online loss=%0.2f" % (loss))
+        revolutionary_model = self.qmodel(True)
+        history = revolutionary_model.fit( [s, a], vt, batch_size=self.BATCH, verbose=1, nb_epoch=30, shuffle=False, sample_weight=sample_weight)
+        for k,v in history.__dict__.iteritems():
+            print "key=%s  val=%s" % (k,v)
+        loss = history.history["loss"][-1]
+        print("guess loss=%0.2f" % (loss))
+        ws = revolutionary_model.get_weights()
+        with self.stable_mutex:
+            self.Q_online.set_weights(ws)
+            self.Q_stable.set_weights(ws)
+        loss = self.Q_online.test_on_batch( [s, a], vt, sample_weight=sample_weight  )
+        print("test Q_online loss=%0.2f" % (loss))
 
     def _save(self, fn):
         self.Q_stable.save_weights(fn + "_qnet.h5", overwrite=True)
@@ -317,8 +330,20 @@ class QNetPolicygrad(algo.Algorithm):
             #print "/BALL TREE"
 
     def _control(self, s, action_space):
-        if self.use_random_policy:
-            return action_space.sample()
+        assert(self.anti_stuck)
+        if self.anti_stuck:
+            d = np.linalg.norm(self.prev_s - s)
+            if d < 0.01:
+                #print "STUCK"
+                self.stuck = 10
+            self.prev_s = s
+
+        if self.use_random_policy or self.stuck>0:
+            self.stuck -= 1
+            a = self.autocorrelated_random*0.7 + action_space.sample()*0.7
+            a  = np.clip(a, -1, +1)
+            self.autocorrelated_random = a
+            return a
 
         with self.stable_mutex:
             a = self.online_policy_action.predict(s.reshape(1,xp.STATE_DIM))[0]
@@ -354,6 +379,31 @@ class QNetPolicygrad(algo.Algorithm):
             a  = np.clip(a, -1, +1)
 
         return a
+
+    def _learn_demo_policy_supervised(self, buf, dry_run):
+        s = np.zeros( (self.BATCH, xp.STATE_DIM) )
+        batch_a = np.zeros( (self.BATCH, xp.ACTION_DIM) )
+        for i,x in enumerate(buf):
+            s[i] = x.s
+            batch_a[i] = x.a
+        with self.stable_mutex:
+            loss = self.online_policy_action.train_on_batch( s, batch_a )
+            if self.demo_policy_tolearn==0:
+                w = self.online_policy_action.get_weights()
+                self.stable_policy_action.set_weights(w)
+                print("copy to stable policy")
+            elif self.demo_policy_tolearn % 100 == 0:
+                print("%05i supervised demo learn %0.4f" % (self.demo_policy_tolearn, loss))
+
+    def _test_still_need_random_policy(self):
+        if self.use_random_policy:
+            N = len(xp.replay)
+            self.N = N
+            if N > 1000:
+                self.use_random_policy = False
+                print("have %i random samples, start learning" % N)
+            else:
+                self.demo_policy_tolearn = 0  # random action taken, supervised demo learning not applicable
 
     def _slowly_transfer_weights_to_stable_network(self, stable, online, TAU):
         ws_online = online.get_weights()
